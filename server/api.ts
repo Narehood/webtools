@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { connect as tlsConnect } from "node:tls";
-import { lookup as dnsLookup, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
+import { createConnection, isIP } from "node:net";
+import { lookup as dnsLookup, reverse as dnsReverse, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
 import whoiser from "whoiser";
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -250,6 +251,103 @@ async function lookupMail(domain: string) {
   };
 }
 
+function parsePortNumber(raw: unknown): number {
+  const value = Number(String(raw ?? "").trim());
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error("Port must be a whole number from 1 to 65535");
+  }
+  return value;
+}
+
+function parseReachableHost(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error("Enter a hostname or IP");
+  if (/[,\s]/.test(trimmed.replace(/^\[|\]$/g, ""))) {
+    throw new Error("One host at a time");
+  }
+  try {
+    if (trimmed.includes("://")) return new URL(trimmed).hostname;
+  } catch {
+    throw new Error("That does not look like a valid host");
+  }
+  if (trimmed.startsWith("[")) {
+    const match = trimmed.match(/^\[([^\]]+)\]/);
+    if (!match) throw new Error("That IPv6 address is missing a closing bracket");
+    return match[1];
+  }
+  return trimmed.replace(/\/.*$/, "");
+}
+
+async function checkPort(rawHost: string, rawPort: unknown) {
+  const host = parseReachableHost(rawHost);
+  const port = parsePortNumber(rawPort);
+  const started = performance.now();
+
+  return await new Promise<{
+    open: boolean;
+    host: string;
+    port: number;
+    ms: number;
+    error?: string;
+  }>((resolve) => {
+    const socket = createConnection({ host, port });
+    const finish = (result: { open: boolean; error?: string }) => {
+      const ms = Math.round(performance.now() - started);
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve({ host, port, ms, ...result });
+    };
+    socket.setTimeout(4000);
+    socket.on("connect", () => finish({ open: true }));
+    socket.on("timeout", () => finish({ open: false, error: "Timed out" }));
+    socket.on("error", (error) => finish({ open: false, error: error.message }));
+  });
+}
+
+async function lookupEgress() {
+  const read = async (url: string) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { "User-Agent": "WebTools-Egress/0.1" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.text();
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  try {
+    const trace = await read("https://1.1.1.1/cdn-cgi/trace");
+    const ip = trace.match(/^ip=(.+)$/m)?.[1]?.trim() ?? "";
+    if (!ip) throw new Error("empty");
+    return { ip, source: "cloudflare", checkedAt: new Date().toISOString() };
+  } catch {
+    const body = JSON.parse(await read("https://api.ipify.org?format=json")) as { ip?: string };
+    const ip = body.ip?.trim() ?? "";
+    if (!ip) throw new Error("Could not read this host’s public IP");
+    return { ip, source: "ipify", checkedAt: new Date().toISOString() };
+  }
+}
+
+async function lookupPtr(raw: string) {
+  const ip = raw.trim();
+  if (!isIP(ip)) throw new Error("Enter an IPv4 or IPv6 address");
+  try {
+    const names = await dnsReverse(ip);
+    return { ip, names };
+  } catch (error) {
+    return {
+      ip,
+      names: [] as string[],
+      error: error instanceof Error ? error.message : "No PTR record",
+    };
+  }
+}
+
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (!url.pathname.startsWith("/api/")) return false;
@@ -300,6 +398,23 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === "/api/mail" && req.method === "POST") {
       const body = await readJson(req);
       send(res, 200, await lookupMail(String(body.domain ?? body.host ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/port" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await checkPort(String(body.host ?? body.url ?? ""), body.port ?? body.target ?? ""));
+      return true;
+    }
+
+    if ((url.pathname === "/api/egress" && (req.method === "GET" || req.method === "POST"))) {
+      send(res, 200, await lookupEgress());
+      return true;
+    }
+
+    if (url.pathname === "/api/ptr" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await lookupPtr(String(body.ip ?? body.host ?? body.address ?? "")));
       return true;
     }
 

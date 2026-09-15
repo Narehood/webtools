@@ -12,6 +12,8 @@ import { CronTool, DataTool, RegexTool } from "./pages/tools/DataTools";
 import { ExifTool, ExifViewerTool, ResizeTool } from "./pages/tools/ImagePlusTools";
 import { HeadersTool, MailTool, SslTool } from "./pages/tools/NetworkPlusTools";
 import { ChecksumTool, JwtTool } from "./pages/tools/CryptoPlusTools";
+import { EgressTool, PortTool, PtrTool } from "./pages/tools/NetworkReachTools";
+import { ChmodTool, CidrTool, PemTool, TotpTool, WifiQrTool } from "./pages/tools/HomelabTools";
 
 export default function App() {
   return (
@@ -31,6 +33,10 @@ export default function App() {
           <Route path="/dns" element={<DnsTool />} />
           <Route path="/headers" element={<HeadersTool />} />
           <Route path="/mail" element={<MailTool />} />
+          <Route path="/port" element={<PortTool />} />
+          <Route path="/egress" element={<EgressTool />} />
+          <Route path="/ptr" element={<PtrTool />} />
+          <Route path="/cidr" element={<CidrTool />} />
           <Route path="/url" element={<UrlTool />} />
           <Route path="/diff" element={<DiffTool />} />
           <Route path="/json" element={<JsonTool />} />
@@ -41,12 +47,16 @@ export default function App() {
           <Route path="/timestamp" element={<TimestampTool />} />
           <Route path="/cron" element={<CronTool />} />
           <Route path="/qr" element={<QrTool />} />
+          <Route path="/wifi" element={<WifiQrTool />} />
+          <Route path="/chmod" element={<ChmodTool />} />
           <Route path="/color" element={<ColorTool />} />
           <Route path="/hash" element={<HashTool />} />
           <Route path="/checksum" element={<ChecksumTool />} />
           <Route path="/jwt" element={<JwtTool />} />
           <Route path="/base64" element={<Base64Tool />} />
           <Route path="/password" element={<PasswordTool />} />
+          <Route path="/totp" element={<TotpTool />} />
+          <Route path="/pem" element={<PemTool />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
