@@ -198,6 +198,61 @@ export function Icon({ name }: { name: string }) {
           <path d="M9 12h6" />
         </svg>
       );
+    case "port":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="12" r="3" />
+          <path d="M10 12h10M17 8v8" />
+        </svg>
+      );
+    case "egress":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 8v8M8 12h8" />
+        </svg>
+      );
+    case "ptr":
+      return (
+        <svg {...common}>
+          <path d="M19 12H8M12 7l-5 5 5 5" />
+        </svg>
+      );
+    case "cidr":
+      return (
+        <svg {...common}>
+          <rect x="5" y="5" width="14" height="14" rx="2" />
+          <path d="M9 9h6v6H9z" />
+        </svg>
+      );
+    case "wifi":
+      return (
+        <svg {...common}>
+          <path d="M5 10c4-4 10-4 14 0M8 13c2.5-2.5 5.5-2.5 8 0" />
+          <circle cx="12" cy="17" r="1.2" />
+        </svg>
+      );
+    case "chmod":
+      return (
+        <svg {...common}>
+          <rect x="5" y="6" width="14" height="12" rx="2" />
+          <path d="M8 10h2M12 10h2M16 10h1M8 14h8" />
+        </svg>
+      );
+    case "totp":
+      return (
+        <svg {...common}>
+          <rect x="6" y="4" width="12" height="16" rx="2" />
+          <path d="M9 9h6M9 13h4" />
+        </svg>
+      );
+    case "pem":
+      return (
+        <svg {...common}>
+          <path d="M8 5h8l3 3v11H8z" />
+          <path d="M16 5v3h3M10 12h6M10 15h4" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

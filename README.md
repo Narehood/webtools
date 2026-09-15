@@ -65,7 +65,7 @@ docker build -t ghcr.io/narehood/webtools:latest .
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 24 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ### Local development
 
@@ -81,7 +81,7 @@ Needs Node 24+. Open [http://localhost:5173](http://localhost:5173).
 | Where it runs | What |
 | --- | --- |
 | **This browser** | Images, EXIF, hashes, JWT decode, text transforms, QR, URLs |
-| **This server** | Site status, SSL, WHOIS, DNS, HTTP headers, mail auth |
+| **This server** | Site status, SSL, WHOIS, DNS, HTTP headers, mail auth, port check, egress IP, reverse DNS |
 
 No accounts. Files you drop are not uploaded to a third party.
 
@@ -131,6 +131,18 @@ Follow up to ten hops with `redirect: manual` and show status plus response head
 **Mail auth**  
 MX records plus SPF, DMARC, and a handful of common DKIM selectors (`default`, `google`, `selector1`, `k1`, and similar).
 
+**Port check**  
+TCP connect from this host to one hostname and one port. Timeout, latency, open or closed. Not a port scan.
+
+**Egress IP**  
+Public address this container uses outbound, compared with the browser’s public IP.
+
+**Reverse DNS**  
+PTR names for an IPv4 or IPv6 address using this machine’s resolver.
+
+**CIDR calculator**  
+Network, mask, broadcast, usable range, and whether an IP sits inside the prefix. Runs in this tab.
+
 ---
 
 ## Text
@@ -165,6 +177,12 @@ Five-field cron (`minute hour day month weekday`) turned into a plain-English de
 **QR code**  
 Draw a scannable SVG in the browser. Download the SVG. No remote renderer.
 
+**Wi-Fi QR**  
+SSID, password, and security into a `WIFI:` payload, drawn as SVG in this tab.
+
+**chmod calculator**  
+Owner/group/other bits as octal (`755`) and symbolic (`rwxr-xr-x`), including setuid/setgid/sticky.
+
 **Color contrast**  
 WCAG 2 contrast for a foreground / background pair, with AA / AAA / fail.
 
@@ -187,11 +205,17 @@ Encode or decode UTF-8 text with the browser codec.
 **Password generator**  
 Cryptographically random strings with length and optional symbols.
 
+**TOTP & htpasswd**  
+Six-digit authenticator codes from a Base32 secret, plus a bcrypt `user:hash` line for basic auth. Secrets stay in this tab.
+
+**Cert & key peek**  
+Decode PEM certificates, CSRs, and OpenSSH public keys (subject, SAN, expiry, fingerprints). Private keys are detected and not decoded or uploaded.
+
 ---
 
 ## Notes
 
 - Background removal is a local corner-sample lift, not a cloud ML model.
 - JWT peek will not tell you whether a token is valid — only what is inside it.
-- Network tools need outbound access from the host (port 43 for WHOIS, 443 for TLS, DNS for lookups).
+- Network tools need outbound access from the host (port 43 for WHOIS, 443 for TLS, DNS for lookups, plus the single port you type in Port check).
 - Do not expose port 8080 to the internet. There is no authentication.
