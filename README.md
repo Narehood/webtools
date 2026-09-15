@@ -2,35 +2,30 @@
 
 > **Coming soon.** This project is under active development and is **not a finished release**. Interfaces, tool behavior, and the Docker image may change without notice. Use it locally at your own risk; do not treat it as production-ready.
 
+> **Do not put this on the public internet.** WebTools has no login, rate limit, or abuse controls. Anyone who can open it can run WHOIS, DNS, TLS, and HTTP checks **from your machine**, which will get that host (and you) spammed or blocked. Keep it on your LAN. If you need access from outside, put a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/) in front **and** require [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/) (or another login gate). A tunnel without Access is still a public website.
+
 Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and text work stay in the browser where possible. Status, WHOIS, DNS, certificates, headers, and mail records are checked from this machine — they only leave the host to reach the target you type.
 
 ## Run
 
-### Local development
+### Docker Compose
+
+Copy [`docker-compose.example.yml`](docker-compose.example.yml) onto the machine that will run it:
 
 ```bash
-npm install
-npm run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173).
-
-### Docker Compose (homelab)
-
-From a clone, build and start:
-
-```bash
-docker compose up --build -d
-```
-
-After GitHub has published the image, skip the build and pull instead:
-
-```bash
-docker compose pull
+cp docker-compose.example.yml docker-compose.yml
 docker compose up -d
 ```
 
 Open [http://localhost:8080](http://localhost:8080). Stop with `docker compose down`.
+
+That example pulls `ghcr.io/narehood/webtools:latest`. Bind to `127.0.0.1:8080` instead of `8080:8080` if a tunnel or reverse proxy is the only way in.
+
+From this repo, build the image yourself:
+
+```bash
+docker compose up --build -d
+```
 
 ### Docker
 
@@ -46,7 +41,16 @@ docker build -t ghcr.io/narehood/webtools:latest .
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 22 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+
+### Local development
+
+```bash
+npm install
+npm run dev
+```
+
+Needs Node 24+. Open [http://localhost:5173](http://localhost:5173).
 
 ## Privacy
 
@@ -166,3 +170,4 @@ Cryptographically random strings with length and optional symbols.
 - Background removal is a local corner-sample lift, not a cloud ML model.
 - JWT peek will not tell you whether a token is valid — only what is inside it.
 - Network tools need outbound access from the host (port 43 for WHOIS, 443 for TLS, DNS for lookups).
+- Do not expose port 8080 to the internet. There is no authentication.

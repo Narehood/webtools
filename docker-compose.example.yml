@@ -1,0 +1,24 @@
+# Homelab example — copy this file and start:
+#   cp docker-compose.example.yml docker-compose.yml
+#   docker compose up -d
+#
+# Keep this on your LAN. WebTools has no login. Anyone who can
+# reach port 8080 can run WHOIS, DNS, TLS, and HTTP checks from
+# this machine. If you need access from outside, put a
+# Cloudflare Tunnel in front *and* require Cloudflare Access
+# (or another login gate). A tunnel without Access is still public.
+#
+# Prefer binding to localhost if a tunnel or reverse proxy
+# is the only way in:
+#   ports:
+#     - "127.0.0.1:8080:8080"
+
+services:
+  webtools:
+    image: ghcr.io/narehood/webtools:latest
+    container_name: webtools
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+    restart: unless-stopped
