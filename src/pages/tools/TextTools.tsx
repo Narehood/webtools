@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { CopyButton } from "../../components/CopyButton";
 import { cleanUrl } from "../../lib/url";
 import { diffLines } from "../../lib/diff";
-import { casesOf, nanoId, toSlug } from "../../lib/text";
+import { casesOf, nanoId, toSlug, uuidV4 } from "../../lib/text";
 
 export function UrlTool() {
   const [input, setInput] = useState(
@@ -93,7 +93,7 @@ export function DiffTool() {
 
 export function IdsTool() {
   const [title, setTitle] = useState("Everyday bench notes");
-  const [ids, setIds] = useState(() => [crypto.randomUUID(), crypto.randomUUID(), nanoId()]);
+  const [ids, setIds] = useState(() => [uuidV4(), uuidV4(), nanoId()]);
 
   return (
     <>
@@ -111,7 +111,7 @@ export function IdsTool() {
           <div className="row" style={{ marginTop: 16 }}>
             <button
               className="btn"
-              onClick={() => setIds([crypto.randomUUID(), crypto.randomUUID(), nanoId()])}
+              onClick={() => setIds([uuidV4(), uuidV4(), nanoId()])}
             >
               New IDs
             </button>
