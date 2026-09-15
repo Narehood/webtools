@@ -27,6 +27,30 @@ From this repo, build the image yourself:
 docker compose up --build -d
 ```
 
+### Portainer
+
+Use [`portainer-stack.yml`](portainer-stack.yml). It has no `build:` step, so a NAS or Portainer agent only pulls `ghcr.io/narehood/webtools`. Do not deploy the repo `docker-compose.yml` as a stack — Portainer will try to build and fail.
+
+**Web editor:** Stacks → Add stack → name it `webtools` → paste `portainer-stack.yml` → Deploy the stack.
+
+**Git:** Stacks → Add stack → Repository
+
+| Field | Value |
+| --- | --- |
+| Repository URL | `https://github.com/Narehood/webtools` |
+| Reference | `refs/heads/main` |
+| Compose path | `portainer-stack.yml` |
+
+Optional environment variables in the stack UI (leave blank for defaults):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WEBTOOLS_TAG` | `latest` | Image tag |
+| `WEBTOOLS_PORT` | `8080` | Host port |
+| `WEBTOOLS_BIND` | `0.0.0.0` | Set `127.0.0.1` if only a tunnel should reach it |
+
+When you update, turn on **Re-pull image and redeploy** so Portainer fetches a new `latest`. If GHCR is still private, add a `ghcr.io` registry in Portainer with a GitHub token that can read packages.
+
 ### Docker
 
 ```bash
