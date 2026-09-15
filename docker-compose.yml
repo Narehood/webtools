@@ -1,6 +1,20 @@
+# Homelab
+#
+# Build from this folder:
+#   docker compose up --build -d
+#
+# Pull the published image (after GitHub Actions has pushed to GHCR):
+#   docker compose pull
+#   docker compose up -d
+
 services:
   webtools:
-    build: .
+    image: ghcr.io/narehood/webtools:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    environment:
+      PORT: "8080"
     restart: unless-stopped

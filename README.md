@@ -6,6 +6,8 @@ Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and te
 
 ## Run
 
+### Local development
+
 ```bash
 npm install
 npm run dev
@@ -13,11 +15,38 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
+### Docker Compose (homelab)
+
+From a clone, build and start:
+
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-Then open [http://localhost:8080](http://localhost:8080).
+After GitHub has published the image, skip the build and pull instead:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Open [http://localhost:8080](http://localhost:8080). Stop with `docker compose down`.
+
+### Docker
+
+```bash
+docker pull ghcr.io/narehood/webtools:latest
+docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
+```
+
+Build it yourself instead of pulling:
+
+```bash
+docker build -t ghcr.io/narehood/webtools:latest .
+docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
+```
+
+The image is Node 22 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ## Privacy
 
