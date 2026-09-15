@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useMemo, useState } from "react";
 import { categories, getTool, tools } from "../data/tools";
 import { Icon } from "../components/Icon";
+import { ToolErrorBoundary } from "../components/ToolErrorBoundary";
 
 export function Shell() {
   const [query, setQuery] = useState("");
@@ -95,7 +96,9 @@ export function Shell() {
               <strong> / {current.name}</strong>
             </div>
           )}
-          <Outlet context={{ query }} />
+          <ToolErrorBoundary resetKey={location.pathname}>
+            <Outlet context={{ query }} />
+          </ToolErrorBoundary>
         </div>
       </main>
     </div>
