@@ -1,0 +1,312 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { connect as tlsConnect } from "node:tls";
+import { lookup as dnsLookup, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
+import whoiser from "whoiser";
+
+function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function send(res: ServerResponse, status: number, payload: unknown) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(JSON.stringify(payload));
+}
+
+function normalizeUrl(input: string): URL {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error("Enter a URL or hostname");
+  try {
+    return new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    throw new Error("That does not look like a valid URL");
+  }
+}
+
+function hostnameFrom(input: string): string {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) throw new Error("Enter a domain");
+  try {
+    if (trimmed.includes("://")) return new URL(trimmed).hostname;
+  } catch {
+    throw new Error("That does not look like a valid domain");
+  }
+  return trimmed.replace(/\/.*$/, "").replace(/^\.+|\.+$/g, "");
+}
+
+async function checkStatus(rawUrl: string) {
+  const url = normalizeUrl(rawUrl);
+  const started = performance.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: { "User-Agent": "WebTools-Status/0.1" },
+      });
+    } catch {
+      response = await fetch(url, {
+        method: "GET",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: { "User-Agent": "WebTools-Status/0.1" },
+      });
+    }
+
+    return {
+      up: response.ok || (response.status >= 100 && response.status < 500),
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+      redirected: response.redirected,
+      ms: Math.round(performance.now() - started),
+      checkedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      up: false,
+      ok: false,
+      status: 0,
+      statusText: error instanceof Error && error.name === "AbortError" ? "Timed out" : "Unreachable",
+      url: url.toString(),
+      redirected: false,
+      ms: Math.round(performance.now() - started),
+      checkedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : "Request failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function lookupWhois(domain: string) {
+  const host = hostnameFrom(domain);
+  const result = await whoiser(host, { timeout: 8000, follow: 2 });
+  return { domain: host, result };
+}
+
+async function lookupDns(domain: string) {
+  const host = hostnameFrom(domain);
+  const [a, aaaa, cname, mx, ns, txt, first] = await Promise.allSettled([
+    resolve4(host),
+    resolve6(host),
+    resolveCname(host),
+    resolveMx(host),
+    resolveNs(host),
+    resolveTxt(host),
+    dnsLookup(host, { all: true }),
+  ]);
+
+  const value = <T>(item: PromiseSettledResult<T>): T | [] =>
+    item.status === "fulfilled" ? item.value : [];
+
+  return {
+    domain: host,
+    a: value(a),
+    aaaa: value(aaaa),
+    cname: value(cname),
+    mx: value(mx),
+    ns: value(ns),
+    txt: value(txt).map((entry) => entry.join("")),
+    addresses: value(first),
+  };
+}
+
+async function checkSsl(raw: string) {
+  const url = normalizeUrl(raw);
+  const host = url.hostname;
+  const port = url.port ? Number(url.port) : 443;
+
+  return await new Promise((resolve, reject) => {
+    const socket = tlsConnect(
+      { host, port, servername: host, rejectUnauthorized: false, timeout: 8000 },
+      () => {
+        const cert = socket.getPeerCertificate();
+        const authorized = socket.authorized;
+        const authorizationError = socket.authorizationError
+          ? String(socket.authorizationError)
+          : null;
+        const protocol = socket.getProtocol();
+        socket.end();
+        if (!cert || Object.keys(cert).length === 0) {
+          reject(new Error("No certificate presented"));
+          return;
+        }
+        const expires = new Date(cert.valid_to);
+        resolve({
+          host,
+          port,
+          authorized,
+          authorizationError,
+          protocol,
+          subject: cert.subject,
+          issuer: cert.issuer,
+          validFrom: cert.valid_from,
+          validTo: cert.valid_to,
+          daysRemaining: Math.round((expires.getTime() - Date.now()) / 86_400_000),
+          fingerprint256: cert.fingerprint256,
+          serialNumber: cert.serialNumber,
+          altNames: cert.subjectaltname ?? "",
+        });
+      },
+    );
+    socket.on("error", reject);
+    socket.on("timeout", () => {
+      socket.destroy();
+      reject(new Error("Timed out"));
+    });
+  });
+}
+
+async function traceHeaders(raw: string) {
+  let current = normalizeUrl(raw).toString();
+  const chain: {
+    url: string;
+    status: number;
+    statusText: string;
+    location: string | null;
+    headers: Record<string, string>;
+  }[] = [];
+
+  for (let hop = 0; hop < 10; hop += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(current, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "User-Agent": "WebTools-Headers/0.1" },
+      });
+      const headers = Object.fromEntries(response.headers.entries());
+      const location = response.headers.get("location");
+      chain.push({
+        url: current,
+        status: response.status,
+        statusText: response.statusText,
+        location,
+        headers,
+      });
+      if (!location || response.status < 300 || response.status >= 400) break;
+      current = new URL(location, current).toString();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return { chain };
+}
+
+async function lookupMail(domain: string) {
+  const host = hostnameFrom(domain);
+  const selectors = ["default", "google", "selector1", "selector2", "k1", "s1", "s2", "mail"];
+  const [mx, txt, dmarc, ...dkimSettled] = await Promise.allSettled([
+    resolveMx(host),
+    resolveTxt(host),
+    resolveTxt(`_dmarc.${host}`),
+    ...selectors.map((selector) => resolveTxt(`${selector}._domainkey.${host}`)),
+  ]);
+
+  const fulfilled = <T>(item: PromiseSettledResult<T>): T | [] =>
+    item.status === "fulfilled" ? item.value : [];
+
+  const txtRecords = fulfilled(txt).map((entry) => entry.join(""));
+  const dkim = selectors
+    .map((selector, index) => {
+      const records = fulfilled(dkimSettled[index]).map((entry) => entry.join(""));
+      return records.length ? { selector, records } : null;
+    })
+    .filter((item): item is { selector: string; records: string[] } => Boolean(item));
+
+  return {
+    domain: host,
+    mx: fulfilled(mx),
+    spf: txtRecords.filter((record) => record.toLowerCase().startsWith("v=spf1")),
+    txt: txtRecords,
+    dmarc: fulfilled(dmarc).map((entry) => entry.join("")),
+    dkim,
+  };
+}
+
+export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (!url.pathname.startsWith("/api/")) return false;
+
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
+
+  try {
+    if (url.pathname === "/api/health" && req.method === "GET") {
+      send(res, 200, { ok: true, service: "webtools" });
+      return true;
+    }
+
+    if (url.pathname === "/api/status" && req.method === "POST") {
+      const body = await readJson(req);
+      const target = String(body.url ?? body.host ?? "");
+      send(res, 200, await checkStatus(target));
+      return true;
+    }
+
+    if (url.pathname === "/api/whois" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await lookupWhois(String(body.domain ?? body.host ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/dns" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await lookupDns(String(body.domain ?? body.host ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/ssl" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await checkSsl(String(body.url ?? body.host ?? body.domain ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/headers" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await traceHeaders(String(body.url ?? body.host ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/mail" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await lookupMail(String(body.domain ?? body.host ?? "")));
+      return true;
+    }
+
+    send(res, 404, { error: "Not found" });
+    return true;
+  } catch (error) {
+    send(res, 400, { error: error instanceof Error ? error.message : "Request failed" });
+    return true;
+  }
+}
