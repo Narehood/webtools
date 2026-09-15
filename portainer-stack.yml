@@ -1,0 +1,37 @@
+# Portainer stack (Docker Standalone).
+#
+# Web editor:
+#   Stacks → Add stack → Web editor → paste this file → Deploy
+#
+# Git:
+#   Stacks → Add stack → Repository
+#   URL: https://github.com/Narehood/webtools
+#   Reference: refs/heads/main
+#   Compose path: portainer-stack.yml
+#
+# Do not point Portainer at docker-compose.yml — that file has a
+# build: context and will fail on a NAS that only pulls images.
+#
+# Optional stack environment variables in the Portainer UI:
+#   WEBTOOLS_TAG=latest
+#   WEBTOOLS_PORT=8080
+#   WEBTOOLS_BIND=0.0.0.0
+# Set WEBTOOLS_BIND=127.0.0.1 if a tunnel or reverse proxy is the only way in.
+#
+# Keep this on your LAN. WebTools has no login.
+
+services:
+  webtools:
+    image: ghcr.io/narehood/webtools:${WEBTOOLS_TAG:-latest}
+    container_name: webtools
+    ports:
+      - "${WEBTOOLS_BIND:-0.0.0.0}:${WEBTOOLS_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

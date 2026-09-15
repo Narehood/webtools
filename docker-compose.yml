@@ -3,6 +3,10 @@
 #
 # Homelab pull-only example (no git clone of the app):
 #   see docker-compose.example.yml
+#
+# Portainer:
+#   use portainer-stack.yml (no build: — Portainer only pulls the image)
+
 
 services:
   webtools:
