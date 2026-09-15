@@ -1,11 +1,8 @@
-# Homelab
-#
-# Build from this folder:
+# Build from this repo (development / first-time image):
 #   docker compose up --build -d
 #
-# Pull the published image (after GitHub Actions has pushed to GHCR):
-#   docker compose pull
-#   docker compose up -d
+# Homelab pull-only example (no git clone of the app):
+#   see docker-compose.example.yml
 
 services:
   webtools:
