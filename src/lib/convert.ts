@@ -141,7 +141,7 @@ export const convertGroups: ConvertGroup[] = [
       unit("mps", "Meters per second (m/s)", 1),
       unit("kph", "Kilometers per hour (km/h)", 1 / 3.6),
       unit("mph", "Miles per hour (mph)", 0.44704),
-      unit("knot", "Knot (kn)", 0.514444444),
+      unit("knot", "Knot (kn)", 1852 / 3600),
       unit("fps", "Feet per second (ft/s)", 0.3048),
     ],
   },
@@ -212,7 +212,7 @@ export const convertGroups: ConvertGroup[] = [
       unit("bar", "Bar", 100_000),
       unit("psi", "Pound per square inch (psi)", 6894.757293168),
       unit("atm", "Atmosphere (atm)", 101_325),
-      unit("torr", "Torr", 133.322368421),
+      unit("torr", "Torr", 101325 / 760),
       unit("mmhg", "Millimeter of mercury (mmHg)", 133.322387415),
       unit("inhg", "Inch of mercury (inHg)", 3386.389),
     ],
@@ -232,10 +232,13 @@ export const convertGroups: ConvertGroup[] = [
 ];
 
 const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const GROUPED = /^[+-]?\d{1,3}(,\d{3})+([eE][+-]?\d+)?$/;
+const COMMA_DECIMAL = /^[+-]?(?:\d+,\d+|,\d+)(?:[eE][+-]?\d+)?$/;
 
 export function parseAmount(raw: string) {
   let text = raw.trim().replace(/[\s\u00a0]/g, "");
-  if (text.includes(",") && !text.includes(".")) text = text.replace(",", ".");
+  if (GROUPED.test(text)) text = text.replace(/,/g, "");
+  else if (COMMA_DECIMAL.test(text)) text = text.replace(",", ".");
   if (!DECIMAL.test(text)) throw new Error("Enter a number");
   const amount = Number(text);
   if (!Number.isFinite(amount)) throw new Error("Enter a number");
@@ -255,19 +258,27 @@ function trimPlain(text: string) {
   return text.replace(/0+$/, "").replace(/\.$/, "");
 }
 
+function snapNearInteger(value: number) {
+  if (!Number.isFinite(value) || Number.isInteger(value)) return value;
+  const rounded = Math.round(value);
+  const scale = Math.max(1, Math.abs(rounded));
+  if (Math.abs(value - rounded) <= Number.EPSILON * scale * 16) return rounded;
+  return value;
+}
+
 export function formatConverted(value: number) {
   if (!Number.isFinite(value)) return "—";
-  if (value === 0 || Object.is(value, -0)) return "0";
-  if (Number.isInteger(value)) return String(value);
-  const abs = Math.abs(value);
-  if (abs >= 1e15 || abs < 1e-6) return trimExponential(value.toExponential(12));
-  return trimPlain(value.toPrecision(15));
+  const cleaned = snapNearInteger(value);
+  if (cleaned === 0 || Object.is(cleaned, -0)) return "0";
+  if (Number.isInteger(cleaned)) return String(cleaned);
+  const abs = Math.abs(cleaned);
+  if (abs >= 1e15 || abs < 1e-6) return trimExponential(cleaned.toExponential(12));
+  return trimPlain(cleaned.toPrecision(15));
 }
 
 export function formatSource(value: number) {
-  if (!Number.isFinite(value)) return "";
-  if (value === 0 || Object.is(value, -0)) return "0";
-  return String(value);
+  const text = formatConverted(value);
+  return text === "—" ? "" : text;
 }
 
 export type ConvertedRow = ConvertUnit & { amount: number | null; value: string };
