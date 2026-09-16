@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CopyButton } from "../../components/CopyButton";
-import { convertAll, convertGroups, type ConvertKind } from "../../lib/convert";
+import { convertAll, convertGroups, formatSource, type ConvertKind } from "../../lib/convert";
 
 export function UnitsTool() {
   const [kind, setKind] = useState<ConvertKind>("data");
@@ -77,10 +77,9 @@ export function UnitsTool() {
                   type="button"
                   className={`convert-row${row.id === fromId ? " current" : ""}`}
                   onClick={() => {
-                    if (row.value && row.value !== "—") {
-                      setRaw(row.value);
-                      setFromId(row.id);
-                    }
+                    if (row.id === fromId || row.amount === null || !Number.isFinite(row.amount)) return;
+                    setRaw(formatSource(row.amount));
+                    setFromId(row.id);
                   }}
                 >
                   <span>{row.name}</span>

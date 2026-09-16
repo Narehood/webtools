@@ -117,8 +117,8 @@ export const convertGroups: ConvertGroup[] = [
       {
         id: "f",
         name: "Fahrenheit (°F)",
-        toBase: (value) => (value + 459.67) * (5 / 9),
-        fromBase: (value) => value * (9 / 5) - 459.67,
+        toBase: (value) => (value - 32) * (5 / 9) + 273.15,
+        fromBase: (value) => (value - 273.15) * (9 / 5) + 32,
       },
       {
         id: "k",
@@ -172,8 +172,12 @@ export const convertGroups: ConvertGroup[] = [
       unit("mbit", "Megabit (Mb)", 1_000_000),
       unit("gbit", "Gigabit (Gb)", 1_000_000_000),
       unit("tbit", "Terabit (Tb)", 1e12),
+      unit("pbit", "Petabit (Pb)", 1e15),
       unit("kibit", "Kibibit (Kibit)", 1024),
       unit("mibit", "Mebibit (Mibit)", 1024 ** 2),
+      unit("gibit", "Gibibit (Gibit)", 1024 ** 3),
+      unit("tibit", "Tebibit (Tibit)", 1024 ** 4),
+      unit("pibit", "Pebibit (Pibit)", 1024 ** 5),
       unit("kb", "Kilobyte (kB)", 8_000),
       unit("mb", "Megabyte (MB)", 8_000_000),
       unit("gb", "Gigabyte (GB)", 8e9),
@@ -227,26 +231,57 @@ export const convertGroups: ConvertGroup[] = [
   },
 ];
 
-export function formatConverted(value: number) {
-  if (!Number.isFinite(value)) return "—";
-  if (Object.is(value, -0) || Math.abs(value) < 1e-12) return "0";
-  const abs = Math.abs(value);
-  if (abs >= 1e15 || abs < 1e-9) return value.toExponential(6);
-  const text = abs >= 1e6 ? value.toPrecision(8) : value.toPrecision(10);
-  return String(Number(text));
+const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+export function parseAmount(raw: string) {
+  let text = raw.trim().replace(/[\s\u00a0]/g, "");
+  if (text.includes(",") && !text.includes(".")) text = text.replace(",", ".");
+  if (!DECIMAL.test(text)) throw new Error("Enter a number");
+  const amount = Number(text);
+  if (!Number.isFinite(amount)) throw new Error("Enter a number");
+  return amount;
 }
 
-export function convertAll(kind: ConvertKind, fromId: string, raw: string) {
+function trimExponential(text: string) {
+  return text.replace(/(\.\d*?)0+(e[+-]?\d+)$/i, (_, frac: string, exp: string) => {
+    const digits = frac.replace(/0+$/, "");
+    return (digits === "." ? "" : digits) + exp;
+  });
+}
+
+function trimPlain(text: string) {
+  if (/e/i.test(text)) return trimExponential(text);
+  if (!text.includes(".")) return text;
+  return text.replace(/0+$/, "").replace(/\.$/, "");
+}
+
+export function formatConverted(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  if (value === 0 || Object.is(value, -0)) return "0";
+  if (Number.isInteger(value)) return String(value);
+  const abs = Math.abs(value);
+  if (abs >= 1e15 || abs < 1e-6) return trimExponential(value.toExponential(12));
+  return trimPlain(value.toPrecision(15));
+}
+
+export function formatSource(value: number) {
+  if (!Number.isFinite(value)) return "";
+  if (value === 0 || Object.is(value, -0)) return "0";
+  return String(value);
+}
+
+export type ConvertedRow = ConvertUnit & { amount: number | null; value: string };
+
+export function convertAll(kind: ConvertKind, fromId: string, raw: string): ConvertedRow[] {
   const group = convertGroups.find((item) => item.id === kind);
   if (!group) throw new Error("Unknown category");
   const from = group.units.find((item) => item.id === fromId) ?? group.units[0];
   const trimmed = raw.trim();
-  if (!trimmed) return group.units.map((unitItem) => ({ ...unitItem, value: "" }));
-  const amount = Number(trimmed);
-  if (!Number.isFinite(amount)) throw new Error("Enter a number");
-  const base = from.toBase(amount);
-  return group.units.map((unitItem) => ({
-    ...unitItem,
-    value: formatConverted(unitItem.fromBase(base)),
-  }));
+  if (!trimmed) return group.units.map((unitItem) => ({ ...unitItem, amount: null, value: "" }));
+  const entered = parseAmount(trimmed);
+  const base = from.toBase(entered);
+  return group.units.map((unitItem) => {
+    const amount = unitItem.fromBase(base);
+    return { ...unitItem, amount, value: formatConverted(amount) };
+  });
 }
