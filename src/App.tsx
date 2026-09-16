@@ -14,6 +14,7 @@ import { HeadersTool, MailTool, SslTool } from "./pages/tools/NetworkPlusTools";
 import { ChecksumTool, JwtTool } from "./pages/tools/CryptoPlusTools";
 import { EgressTool, PortTool, PtrTool } from "./pages/tools/NetworkReachTools";
 import { ChmodTool, CidrTool, PemTool, TotpTool, WifiQrTool } from "./pages/tools/HomelabTools";
+import { UnitsTool } from "./pages/tools/UnitsTool";
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/qr" element={<QrTool />} />
           <Route path="/wifi" element={<WifiQrTool />} />
           <Route path="/chmod" element={<ChmodTool />} />
+          <Route path="/units" element={<UnitsTool />} />
           <Route path="/color" element={<ColorTool />} />
           <Route path="/hash" element={<HashTool />} />
           <Route path="/checksum" element={<ChecksumTool />} />
