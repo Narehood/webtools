@@ -239,6 +239,12 @@ export function Icon({ name }: { name: string }) {
           <path d="M8 10h2M12 10h2M16 10h1M8 14h8" />
         </svg>
       );
+    case "units":
+      return (
+        <svg {...common}>
+          <path d="M7 5v14M17 5v14M4 8h6M4 16h6M14 8h6M14 16h6" />
+        </svg>
+      );
     case "totp":
       return (
         <svg {...common}>

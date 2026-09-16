@@ -183,6 +183,9 @@ SSID, password, and security into a `WIFI:` payload, drawn as SVG in this tab.
 **chmod calculator**  
 Owner/group/other bits as octal (`755`) and symbolic (`rwxr-xr-x`), including setuid/setgid/sticky.
 
+**Unit converter**  
+Length, area, volume, mass, temperature, speed, time, digital storage, energy, pressure, and angle. SI storage uses 1000 (kB, MB, GB); binary uses 1024 (KiB, MiB, GiB). Bits and bytes are both listed. Click a result to make it the new source.
+
 **Color contrast**  
 WCAG 2 contrast for a foreground / background pair, with AA / AAA / fail.
 

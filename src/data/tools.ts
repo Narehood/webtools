@@ -310,6 +310,17 @@ export const tools: Tool[] = [
     tileInk: "#b9a3d4",
   },
   {
+    slug: "units",
+    name: "Unit converter",
+    blurb: "Length, mass, volume, temperature, and digital storage — SI and binary.",
+    category: "text",
+    local: true,
+    featured: true,
+    index: "21d",
+    tile: "rgba(226,181,122,.16)",
+    tileInk: "#e2b57a",
+  },
+  {
     slug: "color",
     name: "Color contrast",
     blurb: "Check WCAG contrast and copy hex from a pair of colors.",

@@ -481,6 +481,28 @@ img { max-width: 100%; display: block; }
   font-weight: 500;
 }
 
+.convert-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.convert-row:hover { border-color: var(--line-strong); }
+.convert-row.current {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.convert-row span { color: var(--muted); font-size: 0.9rem; }
+.convert-row b { font-weight: 600; }
+
 .chmod-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
