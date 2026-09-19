@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DropZone } from "../../components/DropZone";
+import { useObjectUrl } from "../../hooks/useObjectUrl";
 import { canvasFromImage, downloadBlob, encodeCanvas, formatBytes, loadImage, sampleProductPng } from "../../lib/image";
 
 const formats = [
@@ -18,16 +19,20 @@ type SharedProps = {
 
 function ImageEncodeTool({ title, lede, action, defaultMime }: SharedProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
+  const preview = useObjectUrl(file);
   const [mime, setMime] = useState(defaultMime);
   const [quality, setQuality] = useState(0.82);
   const [output, setOutput] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
-  const format = formats.find((item) => item.mime === mime) ?? formats[0];
+  const [error, setError] = useState("");
+  const outputPreview = useObjectUrl(output);
+  const outputFormat = formats.find((item) => item.mime === output?.type);
 
   async function convert() {
     if (!file) return;
     setBusy(true);
+    setOutput(null);
+    setError("");
     try {
       const image = await loadImage(file);
       const { canvas } = canvasFromImage(image);
@@ -35,7 +40,7 @@ function ImageEncodeTool({ title, lede, action, defaultMime }: SharedProps) {
       setOutput(blob);
     } catch (error) {
       setOutput(null);
-      alert(error instanceof Error ? error.message : "Conversion failed");
+      setError(error instanceof Error ? error.message : "Conversion failed");
     } finally {
       setBusy(false);
     }
@@ -51,18 +56,19 @@ function ImageEncodeTool({ title, lede, action, defaultMime }: SharedProps) {
       <div className="workspace">
         <section className="panel">
           <DropZone
+            disabled={busy}
             label="Drop a source image"
             hint="Encoded with the canvas API in this browser."
             onFile={(next) => {
               setFile(next);
-              setPreview(URL.createObjectURL(next));
               setOutput(null);
+              setError("");
             }}
           />
           <div className="stack" style={{ marginTop: 16 }}>
             <label className="field">
               <span>Target format</span>
-              <select value={mime} onChange={(event) => setMime(event.target.value)}>
+              <select disabled={busy} value={mime} onChange={(event) => { setMime(event.target.value); setOutput(null); setError(""); }}>
                 {formats.map((item) => (
                   <option key={item.mime} value={item.mime}>
                     {item.label}
@@ -75,11 +81,12 @@ function ImageEncodeTool({ title, lede, action, defaultMime }: SharedProps) {
               <input
                 className="range"
                 type="range"
+                disabled={busy}
                 min={0.3}
                 max={1}
                 step={0.01}
                 value={quality}
-                onChange={(event) => setQuality(Number(event.target.value))}
+                onChange={(event) => { setQuality(Number(event.target.value)); setOutput(null); }}
               />
             </label>
             <div className="row">
@@ -89,23 +96,25 @@ function ImageEncodeTool({ title, lede, action, defaultMime }: SharedProps) {
               <button
                 className="btn ghost"
                 type="button"
+                disabled={busy}
                 onClick={() =>
                   void sampleProductPng().then((next) => {
                     setFile(next);
-                    setPreview(URL.createObjectURL(next));
                     setOutput(null);
-                  })
+                    setError("");
+                  }).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load sample"))
                 }
               >
                 Use sample
               </button>
-              {output && (
-                <button className="btn ghost" onClick={() => downloadBlob(output, `output.${format.ext}`)}>
+              {output && outputFormat && (
+                <button className="btn ghost" onClick={() => downloadBlob(output, `output.${outputFormat.ext}`)}>
                   Download
                 </button>
               )}
             </div>
           </div>
+          {error && <p role="alert" className="lede">{error}</p>}
         </section>
         <section className="panel">
           <div className="stat-grid">
@@ -119,7 +128,7 @@ function ImageEncodeTool({ title, lede, action, defaultMime }: SharedProps) {
             </div>
           </div>
           <div className="preview-frame" style={{ marginTop: 16 }}>
-            {preview && <img src={preview} alt="Source" />}
+            {(outputPreview || preview) && <img src={outputPreview || preview} alt={output ? "Encoded result" : "Source"} />}
           </div>
         </section>
       </div>

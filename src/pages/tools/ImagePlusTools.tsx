@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { DropZone } from "../../components/DropZone";
 import { CopyButton } from "../../components/CopyButton";
+import { useObjectUrl } from "../../hooks/useObjectUrl";
 import {
   canvasFromImage,
   downloadBlob,
@@ -14,7 +15,7 @@ import { formatMeta, gpsOf, isDisplayable, pick, readExif } from "../../lib/exif
 
 export function ResizeTool() {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
+  const preview = useObjectUrl(file);
   const [width, setWidth] = useState(800);
   const [height, setHeight] = useState(600);
   const [lock, setLock] = useState(true);
@@ -25,28 +26,43 @@ export function ResizeTool() {
   const [cropH, setCropH] = useState(600);
   const [output, setOutput] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const outputPreview = useObjectUrl(output);
+  useEffect(() => { setOutput(null); }, [width, height, cropX, cropY, cropW, cropH]);
 
   async function takeFile(next: File) {
-    const image = await loadImage(next);
-    const w = image.naturalWidth;
-    const h = image.naturalHeight;
-    setFile(next);
-    setPreview(URL.createObjectURL(next));
-    setWidth(w);
-    setHeight(h);
-    setRatio(w / h);
-    setCropX(0);
-    setCropY(0);
-    setCropW(w);
-    setCropH(h);
-    setOutput(null);
+    setBusy(true);
+    setError("");
+    try {
+      const image = await loadImage(next);
+      const w = image.naturalWidth;
+      const h = image.naturalHeight;
+      setFile(next);
+      setWidth(w);
+      setHeight(h);
+      setRatio(w / h);
+      setCropX(0);
+      setCropY(0);
+      setCropW(w);
+      setCropH(h);
+      setOutput(null);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function run() {
     if (!file) return;
     setBusy(true);
+    setError("");
+    setOutput(null);
     try {
+      if (![width, height, cropW, cropH].every((value) => Number.isSafeInteger(value) && value > 0)
+        || ![cropX, cropY].every((value) => Number.isSafeInteger(value) && value >= 0)) {
+        throw new Error("Use positive whole-number sizes and non-negative crop coordinates");
+      }
       const image = await loadImage(file);
+      if (cropX + cropW > image.naturalWidth || cropY + cropH > image.naturalHeight) throw new Error("Crop must fit inside the source image");
       const source = canvasFromImage(image).canvas;
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, width);
@@ -55,6 +71,8 @@ export function ResizeTool() {
       if (!ctx) throw new Error("Canvas is not available");
       ctx.drawImage(source, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
       setOutput(await encodeCanvas(canvas, "image/png", 0.92));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resize image");
     } finally {
       setBusy(false);
     }
@@ -69,8 +87,8 @@ export function ResizeTool() {
       </header>
       <div className="workspace">
         <section className="panel">
-          <DropZone label="Drop an image" hint="PNG, JPEG, or WebP." onFile={(next) => void takeFile(next)} />
-          <div className="stack" style={{ marginTop: 16 }}>
+          <DropZone disabled={busy} label="Drop an image" hint="PNG, JPEG, or WebP." onFile={takeFile} />
+          <fieldset disabled={busy} className="stack" style={{ marginTop: 16 }}>
             <div className="stat-grid">
               <label className="field">
                 <span>Width</span>
@@ -123,7 +141,7 @@ export function ResizeTool() {
               <button className="btn" disabled={!file || busy} onClick={() => void run()}>
                 {busy ? "Encoding…" : "Resize"}
               </button>
-              <button className="btn ghost" type="button" onClick={() => void sampleProductPng().then(takeFile)}>
+              <button className="btn ghost" type="button" onClick={() => void sampleProductPng().then(takeFile).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load sample"))}>
                 Use sample
               </button>
               {output && (
@@ -132,11 +150,12 @@ export function ResizeTool() {
                 </button>
               )}
             </div>
-          </div>
+          </fieldset>
+          {error && <p role="alert" className="lede">{error}</p>}
         </section>
         <section className="panel">
           <p className="lede">{file ? `${file.name} · ${formatBytes(file.size)}` : "Waiting for a file."}</p>
-          <div className="preview-frame">{preview && <img src={preview} alt="Source" />}</div>
+          <div className="preview-frame">{(outputPreview || preview) && <img src={outputPreview || preview} alt={output ? "Resized result" : "Source"} />}</div>
         </section>
       </div>
     </>
@@ -145,30 +164,37 @@ export function ResizeTool() {
 
 export function ExifTool() {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
+  const preview = useObjectUrl(file);
   const [meta, setMeta] = useState<Record<string, unknown> | null>(null);
   const [clean, setClean] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function takeFile(next: File) {
+    setBusy(true);
+    setError("");
     setFile(next);
-    setPreview(URL.createObjectURL(next));
     setClean(null);
+    setMeta(null);
     try {
       setMeta(await readExif(next));
-    } catch {
-      setMeta({});
-    }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read metadata");
+    } finally { setBusy(false); }
   }
 
   async function strip() {
     if (!file) return;
     setBusy(true);
+    setError("");
+    setClean(null);
     try {
       const image = await loadImage(file);
       const { canvas } = canvasFromImage(image);
       const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
       setClean(await encodeCanvas(canvas, mime, 0.92));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not strip metadata");
     } finally {
       setBusy(false);
     }
@@ -187,7 +213,8 @@ export function ExifTool() {
       </header>
       <div className="workspace">
         <section className="panel">
-          <DropZone label="Drop a photo" hint="JPEG is richest in EXIF. PNG often has none." onFile={(next) => void takeFile(next)} />
+          <DropZone disabled={busy} label="Drop a photo" hint="JPEG is richest in EXIF. PNG often has none." onFile={takeFile} />
+          {error && <p role="alert" className="lede">{error}</p>}
           <div className="row" style={{ marginTop: 16 }}>
             <button className="btn" disabled={!file || busy} onClick={() => void strip()}>
               {busy ? "Stripping…" : "Strip metadata"}
@@ -225,21 +252,25 @@ export function ExifTool() {
 
 export function ExifViewerTool() {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
+  const preview = useObjectUrl(file);
   const [meta, setMeta] = useState<Record<string, unknown> | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function takeFile(next: File) {
+    setBusy(true);
+    setError("");
     setFile(next);
-    setPreview(URL.createObjectURL(next));
+    setMeta(null);
     try {
       const image = await loadImage(next);
       setSize({ w: image.naturalWidth, h: image.naturalHeight });
       setMeta(await readExif(next));
-    } catch {
+    } catch (err) {
       setSize({ w: 0, h: 0 });
-      setMeta({});
-    }
+      setError(err instanceof Error ? err.message : "Could not read image metadata");
+    } finally { setBusy(false); }
   }
 
   const entries = Object.entries(meta ?? {}).filter(isDisplayable);
@@ -270,9 +301,10 @@ export function ExifViewerTool() {
       <div className="workspace">
         <section className="panel">
           <DropZone
+            disabled={busy}
             label="Drop a photo"
             hint="JPEG and some RAW wrappers carry EXIF. PNG and WebP often do not."
-            onFile={(next) => void takeFile(next)}
+            onFile={takeFile}
           />
           <p className="lede" style={{ margin: "16px 0 0" }}>
             {file
@@ -281,7 +313,7 @@ export function ExifViewerTool() {
           </p>
           <div className="preview-frame">{preview && <img src={preview} alt="Photo" />}</div>
           <div className="row" style={{ marginTop: 16 }}>
-            <button className="btn ghost" type="button" onClick={() => void sampleProductPng().then(takeFile)}>
+            <button disabled={busy} className="btn ghost" type="button" onClick={() => void sampleProductPng().then(takeFile).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load sample"))}>
               Use sample
             </button>
             <CopyButton text={json} />
@@ -291,7 +323,8 @@ export function ExifViewerTool() {
           </div>
         </section>
         <section className="panel">
-          {!meta && <p className="lede">Metadata lands here.</p>}
+          {error && <p role="alert" className="lede">{error}</p>}
+          {!meta && !error && <p className="lede">{busy ? "Reading metadata…" : "Metadata appears here."}</p>}
           {meta && entries.length === 0 && (
             <p className="lede">No EXIF tags on this file. Try a JPEG from a camera or phone.</p>
           )}

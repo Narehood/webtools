@@ -232,7 +232,7 @@ export const convertGroups: ConvertGroup[] = [
 ];
 
 const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
-const GROUPED = /^[+-]?\d{1,3}(,\d{3})+([eE][+-]?\d+)?$/;
+const GROUPED = /^[+-]?\d{1,3}(,\d{3})+(\.\d+)?([eE][+-]?\d+)?$/;
 const COMMA_DECIMAL = /^[+-]?(?:\d+,\d+|,\d+)(?:[eE][+-]?\d+)?$/;
 
 export function parseAmount(raw: string) {
@@ -261,6 +261,7 @@ function trimPlain(text: string) {
 function snapNearInteger(value: number) {
   if (!Number.isFinite(value) || Number.isInteger(value)) return value;
   const rounded = Math.round(value);
+  if (rounded === 0) return value;
   const scale = Math.max(1, Math.abs(rounded));
   if (Math.abs(value - rounded) <= Number.EPSILON * scale * 16) return rounded;
   return value;

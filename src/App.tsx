@@ -1,20 +1,45 @@
+import { lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./layout/Shell";
 import { Home } from "./pages/Home";
-import { BackgroundTool } from "./pages/tools/BackgroundTool";
-import { CompressTool, ConvertTool } from "./pages/tools/ConvertTool";
-import { DnsTool, WhoisTool } from "./pages/tools/NetworkTools";
-import { StatusTool } from "./pages/tools/StatusTool";
-import { ColorTool, JsonTool, QrTool } from "./pages/tools/LocalTools";
-import { Base64Tool, HashTool, PasswordTool } from "./pages/tools/CryptoTools";
-import { CaseTool, DiffTool, IdsTool, TimestampTool, UrlTool } from "./pages/tools/TextTools";
-import { CronTool, DataTool, RegexTool } from "./pages/tools/DataTools";
-import { ExifTool, ExifViewerTool, ResizeTool } from "./pages/tools/ImagePlusTools";
-import { HeadersTool, MailTool, SslTool } from "./pages/tools/NetworkPlusTools";
-import { ChecksumTool, JwtTool } from "./pages/tools/CryptoPlusTools";
-import { EgressTool, PortTool, PtrTool } from "./pages/tools/NetworkReachTools";
-import { ChmodTool, CidrTool, PemTool, TotpTool, WifiQrTool } from "./pages/tools/HomelabTools";
-import { UnitsTool } from "./pages/tools/UnitsTool";
+const BackgroundTool = lazy(() => import("./pages/tools/BackgroundTool").then((module) => ({ default: module.BackgroundTool })));
+const CompressTool = lazy(() => import("./pages/tools/ConvertTool").then((module) => ({ default: module.CompressTool })));
+const ConvertTool = lazy(() => import("./pages/tools/ConvertTool").then((module) => ({ default: module.ConvertTool })));
+const DnsTool = lazy(() => import("./pages/tools/NetworkTools").then((module) => ({ default: module.DnsTool })));
+const WhoisTool = lazy(() => import("./pages/tools/NetworkTools").then((module) => ({ default: module.WhoisTool })));
+const StatusTool = lazy(() => import("./pages/tools/StatusTool").then((module) => ({ default: module.StatusTool })));
+const ColorTool = lazy(() => import("./pages/tools/LocalTools").then((module) => ({ default: module.ColorTool })));
+const JsonTool = lazy(() => import("./pages/tools/LocalTools").then((module) => ({ default: module.JsonTool })));
+const QrTool = lazy(() => import("./pages/tools/LocalTools").then((module) => ({ default: module.QrTool })));
+const Base64Tool = lazy(() => import("./pages/tools/CryptoTools").then((module) => ({ default: module.Base64Tool })));
+const HashTool = lazy(() => import("./pages/tools/CryptoTools").then((module) => ({ default: module.HashTool })));
+const PasswordTool = lazy(() => import("./pages/tools/CryptoTools").then((module) => ({ default: module.PasswordTool })));
+const CaseTool = lazy(() => import("./pages/tools/TextTools").then((module) => ({ default: module.CaseTool })));
+const DiffTool = lazy(() => import("./pages/tools/TextTools").then((module) => ({ default: module.DiffTool })));
+const IdsTool = lazy(() => import("./pages/tools/TextTools").then((module) => ({ default: module.IdsTool })));
+const TimestampTool = lazy(() => import("./pages/tools/TextTools").then((module) => ({ default: module.TimestampTool })));
+const UrlTool = lazy(() => import("./pages/tools/TextTools").then((module) => ({ default: module.UrlTool })));
+const CronTool = lazy(() => import("./pages/tools/DataTools").then((module) => ({ default: module.CronTool })));
+const DataTool = lazy(() => import("./pages/tools/DataTools").then((module) => ({ default: module.DataTool })));
+const RegexTool = lazy(() => import("./pages/tools/DataTools").then((module) => ({ default: module.RegexTool })));
+const ExifTool = lazy(() => import("./pages/tools/ImagePlusTools").then((module) => ({ default: module.ExifTool })));
+const ExifViewerTool = lazy(() => import("./pages/tools/ImagePlusTools").then((module) => ({ default: module.ExifViewerTool })));
+const ResizeTool = lazy(() => import("./pages/tools/ImagePlusTools").then((module) => ({ default: module.ResizeTool })));
+const HeadersTool = lazy(() => import("./pages/tools/NetworkPlusTools").then((module) => ({ default: module.HeadersTool })));
+const MailTool = lazy(() => import("./pages/tools/NetworkPlusTools").then((module) => ({ default: module.MailTool })));
+const SslTool = lazy(() => import("./pages/tools/NetworkPlusTools").then((module) => ({ default: module.SslTool })));
+const ChecksumTool = lazy(() => import("./pages/tools/CryptoPlusTools").then((module) => ({ default: module.ChecksumTool })));
+const JwtTool = lazy(() => import("./pages/tools/CryptoPlusTools").then((module) => ({ default: module.JwtTool })));
+const EgressTool = lazy(() => import("./pages/tools/NetworkReachTools").then((module) => ({ default: module.EgressTool })));
+const PortTool = lazy(() => import("./pages/tools/NetworkReachTools").then((module) => ({ default: module.PortTool })));
+const PtrTool = lazy(() => import("./pages/tools/NetworkReachTools").then((module) => ({ default: module.PtrTool })));
+const ChmodTool = lazy(() => import("./pages/tools/HomelabTools").then((module) => ({ default: module.ChmodTool })));
+const CidrTool = lazy(() => import("./pages/tools/HomelabTools").then((module) => ({ default: module.CidrTool })));
+const PemTool = lazy(() => import("./pages/tools/HomelabTools").then((module) => ({ default: module.PemTool })));
+const TotpTool = lazy(() => import("./pages/tools/HomelabTools").then((module) => ({ default: module.TotpTool })));
+const WifiQrTool = lazy(() => import("./pages/tools/HomelabTools").then((module) => ({ default: module.WifiQrTool })));
+const UnitsTool = lazy(() => import("./pages/tools/UnitsTool").then((module) => ({ default: module.UnitsTool })));
+const BillableHoursTool = lazy(() => import("./pages/tools/BillableHoursTool").then((module) => ({ default: module.BillableHoursTool })));
 
 export default function App() {
   return (
@@ -51,6 +76,7 @@ export default function App() {
           <Route path="/wifi" element={<WifiQrTool />} />
           <Route path="/chmod" element={<ChmodTool />} />
           <Route path="/units" element={<UnitsTool />} />
+          <Route path="/billable-hours" element={<BillableHoursTool />} />
           <Route path="/color" element={<ColorTool />} />
           <Route path="/hash" element={<HashTool />} />
           <Route path="/checksum" element={<ChecksumTool />} />

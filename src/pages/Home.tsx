@@ -32,7 +32,7 @@ export function Home() {
         </>
       ) : (
         <>
-          <h2 className="section-title">Favorites</h2>
+          <h2 className="section-title">Featured tools</h2>
           <div className="grid">
             {pinned.map((tool) => (
               <ToolCard key={tool.slug} tool={tool} />

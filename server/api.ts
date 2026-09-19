@@ -7,23 +7,37 @@ import whoiser from "whoiser";
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 65_536) {
+        chunks.length = 0;
+        reject(new Error("JSON body must be no larger than 64 KiB"));
+        return;
+      }
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
     req.on("end", () => {
+      if (size > 65_536) return;
       if (chunks.length === 0) {
         resolve({});
         return;
       }
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+        const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Expected an object");
+        resolve(body as Record<string, unknown>);
       } catch {
         reject(new Error("Invalid JSON body"));
       }
     });
     req.on("error", reject);
+    req.on("aborted", () => reject(new Error("Request aborted")));
   });
 }
 
 function send(res: ServerResponse, status: number, payload: unknown) {
+  if (res.destroyed || res.writableEnded) return;
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Cache-Control", "no-store");
@@ -56,9 +70,9 @@ async function checkStatus(rawUrl: string) {
   const started = performance.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
+  let response: Response | undefined;
 
   try {
-    let response: Response;
     try {
       response = await fetch(url, {
         method: "HEAD",
@@ -67,6 +81,10 @@ async function checkStatus(rawUrl: string) {
         headers: { "User-Agent": "WebTools-Status/0.1" },
       });
     } catch {
+      // Some servers disconnect HEAD requests; retry with GET below.
+    }
+    if (!response || response.status === 405 || response.status === 501) {
+      await response?.body?.cancel();
       response = await fetch(url, {
         method: "GET",
         redirect: "follow",
@@ -98,6 +116,8 @@ async function checkStatus(rawUrl: string) {
       error: error instanceof Error ? error.message : "Request failed",
     };
   } finally {
+    await response?.body?.cancel().catch(() => {});
+    controller.abort();
     clearTimeout(timeout);
   }
 }
@@ -194,8 +214,9 @@ async function traceHeaders(raw: string) {
   for (let hop = 0; hop < 10; hop += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
+    let response: Response | undefined;
     try {
-      const response = await fetch(current, {
+      response = await fetch(current, {
         method: "GET",
         redirect: "manual",
         signal: controller.signal,
@@ -213,6 +234,8 @@ async function traceHeaders(raw: string) {
       if (!location || response.status < 300 || response.status >= 400) break;
       current = new URL(location, current).toString();
     } finally {
+      await response?.body?.cancel().catch(() => {});
+      controller.abort();
       clearTimeout(timeout);
     }
   }
@@ -349,16 +372,16 @@ async function lookupPtr(raw: string) {
 }
 
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
-  const url = new URL(req.url ?? "/", "http://localhost");
-  if (!url.pathname.startsWith("/api/")) return false;
-
-  if (req.method === "OPTIONS") {
-    res.statusCode = 204;
-    res.end();
-    return true;
-  }
-
   try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (!url.pathname.startsWith("/api/")) return false;
+
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return true;
+    }
+
     if (url.pathname === "/api/health" && req.method === "GET") {
       send(res, 200, { ok: true, service: "webtools" });
       return true;

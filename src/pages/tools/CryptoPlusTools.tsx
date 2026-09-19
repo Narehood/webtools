@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { hashFile } from "../../lib/hash";
 import { DropZone } from "../../components/DropZone";
 import { CopyButton } from "../../components/CopyButton";
 import { formatBytes } from "../../lib/image";
@@ -9,16 +10,25 @@ export function ChecksumTool() {
   const [algo, setAlgo] = useState("SHA-256");
   const [digest, setDigest] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const current = useRef<AbortController | null>(null);
+  useEffect(() => () => current.current?.abort(), []);
 
   async function run(nextFile = file, nextAlgo = algo) {
+    current.current?.abort();
     if (!nextFile) return;
+    const controller = new AbortController();
+    current.current = controller;
     setBusy(true);
+    setDigest("");
+    setError("");
     try {
-      const buffer = await nextFile.arrayBuffer();
-      const hash = await crypto.subtle.digest(nextAlgo, buffer);
-      setDigest([...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+      const hash = await hashFile(nextFile, nextAlgo, controller.signal);
+      if (!controller.signal.aborted) setDigest(hash);
+    } catch (err) {
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Could not hash file");
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   }
 
@@ -27,7 +37,7 @@ export function ChecksumTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>File checksum</h1>
-        <p className="lede">Hash a file with Web Crypto. The bytes never leave this browser.</p>
+        <p className="lede">Hash a file in this browser. The bytes never leave this device.</p>
       </header>
       <div className="workspace">
         <section className="panel">
@@ -58,6 +68,7 @@ export function ChecksumTool() {
         </section>
         <section className="panel">
           <p className="lede">{file ? `${file.name} · ${formatBytes(file.size)}` : "Waiting for a file."}</p>
+          {error && <p role="alert" className="lede">{error}</p>}
           <label className="field">
             <span>{busy ? "Hashing…" : "Digest"}</span>
             <textarea readOnly value={digest} />

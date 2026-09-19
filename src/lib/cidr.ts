@@ -15,6 +15,9 @@ export type CidrResult = {
 };
 
 function ipv4ToInt(ip: string) {
+  if (!/^(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2})){3}$/.test(ip)) {
+    throw new Error("That is not a valid IPv4 address");
+  }
   const parts = ip.split(".").map((part) => Number(part));
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
     throw new Error("That is not a valid IPv4 address");
@@ -28,12 +31,21 @@ function intToIpv4(value: number) {
 }
 
 function expandIpv6(ip: string) {
+  if (ip.includes(".")) {
+    const lastColon = ip.lastIndexOf(":");
+    const v4 = ipv4ToInt(ip.slice(lastColon + 1));
+    ip = `${ip.slice(0, lastColon + 1)}${(v4 >>> 16).toString(16)}:${(v4 & 0xffff).toString(16)}`;
+  }
+  if (ip.split("::").length > 2) throw new Error("That is not a valid IPv6 address");
   const [head, tail] = ip.split("::");
   const headParts = head ? head.split(":") : [];
   const tailParts = tail ? tail.split(":") : [];
+  if ([...headParts, ...tailParts].some((part) => !/^[0-9a-fA-F]{1,4}$/.test(part))) {
+    throw new Error("That is not a valid IPv6 address");
+  }
   if (ip.includes("::")) {
     const missing = 8 - headParts.filter(Boolean).length - tailParts.filter(Boolean).length;
-    if (missing < 0) throw new Error("That is not a valid IPv6 address");
+    if (missing < 1) throw new Error("That is not a valid IPv6 address");
     const filled = [...headParts.filter(Boolean), ...Array.from({ length: missing }, () => "0"), ...tailParts.filter(Boolean)];
     if (filled.length !== 8) throw new Error("That is not a valid IPv6 address");
     return filled.map((part) => part.padStart(4, "0"));
@@ -64,7 +76,9 @@ function splitCidr(input: string) {
   const trimmed = input.trim();
   const slash = trimmed.lastIndexOf("/");
   if (slash === -1) throw new Error("Use CIDR form, like 192.168.1.0/24");
-  return { ip: trimmed.slice(0, slash).trim(), prefix: Number(trimmed.slice(slash + 1).trim()) };
+  const prefix = trimmed.slice(slash + 1).trim();
+  if (!/^\d{1,3}$/.test(prefix)) throw new Error("Enter a whole-number CIDR prefix after the slash");
+  return { ip: trimmed.slice(0, slash).trim(), prefix: Number(prefix) };
 }
 
 export function parseCidr(input: string, queryIp = ""): CidrResult {

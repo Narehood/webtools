@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { categories, getTool, tools } from "../data/tools";
 import { Icon } from "../components/Icon";
 import { ToolErrorBoundary } from "../components/ToolErrorBoundary";
@@ -97,7 +97,7 @@ export function Shell() {
             </div>
           )}
           <ToolErrorBoundary resetKey={location.pathname}>
-            <Outlet context={{ query }} />
+            <Suspense fallback={<p className="lede" role="status">Loading tool...</p>}><Outlet context={{ query }} /></Suspense>
           </ToolErrorBoundary>
         </div>
       </main>

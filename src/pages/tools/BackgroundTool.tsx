@@ -1,25 +1,28 @@
 import { useState } from "react";
 import { DropZone } from "../../components/DropZone";
+import { useObjectUrl } from "../../hooks/useObjectUrl";
 import { downloadBlob, formatBytes, loadImage, removeFlatBackground, sampleProductPng } from "../../lib/image";
 
 export function BackgroundTool() {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
-  const [result, setResult] = useState("");
   const [blob, setBlob] = useState<Blob | null>(null);
+  const preview = useObjectUrl(file);
+  const result = useObjectUrl(blob);
   const [tolerance, setTolerance] = useState(28);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleFile(next: File) {
     setFile(next);
-    setPreview(URL.createObjectURL(next));
-    setResult("");
     setBlob(null);
+    setError("");
   }
 
   async function run() {
     if (!file) return;
     setBusy(true);
+    setError("");
+    setBlob(null);
     try {
       const image = await loadImage(file);
       const canvas = removeFlatBackground(image, tolerance);
@@ -27,7 +30,8 @@ export function BackgroundTool() {
         canvas.toBlob((value) => (value ? resolve(value) : reject(new Error("Encode failed"))), "image/png"),
       );
       setBlob(nextBlob);
-      setResult(URL.createObjectURL(nextBlob));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove background");
     } finally {
       setBusy(false);
     }
@@ -45,17 +49,18 @@ export function BackgroundTool() {
       </header>
       <div className="workspace">
         <section className="panel">
-          <DropZone label="Drop an image" hint="PNG, JPEG, or WebP. Nothing is uploaded." onFile={handleFile} />
+          <DropZone disabled={busy} label="Drop an image" hint="PNG, JPEG, or WebP. Nothing is uploaded." onFile={handleFile} />
           <div className="stack" style={{ marginTop: 16 }}>
             <label className="field">
               <span>Tolerance · {tolerance}</span>
               <input
                 className="range"
                 type="range"
+                disabled={busy}
                 min={8}
                 max={80}
                 value={tolerance}
-                onChange={(event) => setTolerance(Number(event.target.value))}
+                onChange={(event) => { setTolerance(Number(event.target.value)); setBlob(null); }}
               />
             </label>
             <div className="row">
@@ -65,7 +70,8 @@ export function BackgroundTool() {
               <button
                 className="btn ghost"
                 type="button"
-                onClick={() => void sampleProductPng().then(handleFile)}
+                disabled={busy}
+                onClick={() => void sampleProductPng().then(handleFile).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load sample"))}
               >
                 Use sample
               </button>
@@ -76,6 +82,7 @@ export function BackgroundTool() {
               )}
             </div>
           </div>
+          {error && <p role="alert" className="lede">{error}</p>}
         </section>
         <section className="panel">
           <h3>Preview</h3>

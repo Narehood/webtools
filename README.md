@@ -76,6 +76,10 @@ npm run dev
 
 Needs Node 24+. Open [http://localhost:5173](http://localhost:5173).
 
+Run `npm test` for parser, hashing, image-format, and production-server regression checks. Run `npm run build` to type-check and build the app. Container builds run both checks.
+
+Hashing runs locally on both HTTP and HTTPS. Copy buttons use a fallback on LAN HTTP; if a browser blocks copying, select the output and copy it manually. Use HTTPS through your reverse proxy when handling secrets across a network.
+
 ## Privacy
 
 | Where it runs | What |
@@ -169,7 +173,7 @@ Lower, upper, title, camel, Pascal, snake, kebab, and CONSTANT_CASE.
 Cryptographically random UUID v4 values, short NanoIDs, and a URL slug from a title.
 
 **Timestamp**  
-Unix seconds, milliseconds, or an ISO string, converted to local time and back. “Use now” fills the current clock.
+Choose Unix seconds, Unix milliseconds, or an ISO string explicitly, then convert to local time and back. Negative epochs are supported. “Use now” fills the selected format.
 
 **Cron explainer**  
 Five-field cron (`minute hour day month weekday`) turned into a plain-English description.
@@ -189,12 +193,16 @@ Length, area, volume, mass, temperature, speed, time, digital storage, energy, p
 **Color contrast**  
 WCAG 2 contrast for a foreground / background pair, with AA / AAA / fail.
 
+**Billable hours**
+
+Enter start and end times (such as `1:30PM` and `3:10PM`, or 24-hour time), an hourly rate, and an optional unpaid break in minutes. Shows billable hours and total pay, with a copyable summary. Earlier end times count as the next day; matching times mean zero hours. Pay uses exact minutes and rounds only the final total to cents. Everything is calculated in your browser.
+
 ---
 
 ## Crypto
 
 **Hash & checksum**  
-SHA-256, SHA-1, or SHA-512 of a text message via Web Crypto.
+SHA-256, SHA-1, or SHA-512 of a text message, computed locally with the bundled hash library.
 
 **File checksum**  
 Drop any file and hash the bytes locally (same algorithms).

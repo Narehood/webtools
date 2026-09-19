@@ -3,6 +3,7 @@ import { CopyButton } from "../../components/CopyButton";
 import { cleanUrl } from "../../lib/url";
 import { diffLines } from "../../lib/diff";
 import { casesOf, nanoId, toSlug, uuidV4 } from "../../lib/text";
+import { parseTimestamp, type TimestampUnit } from "../../lib/timestamp";
 
 export function UrlTool() {
   const [input, setInput] = useState(
@@ -54,8 +55,8 @@ export function UrlTool() {
 }
 
 export function DiffTool() {
-  const [left, setLeft] = useState("The bench is quiet.\nLeave the originals on disk.");
-  const [right, setRight] = useState("The bench is yours.\nLeave the originals on disk.");
+  const [left, setLeft] = useState("The toolbox is quiet.\nLeave the originals on disk.");
+  const [right, setRight] = useState("The toolbox is yours.\nLeave the originals on disk.");
   const rows = useMemo(() => diffLines(left, right), [left, right]);
 
   return (
@@ -92,7 +93,7 @@ export function DiffTool() {
 }
 
 export function IdsTool() {
-  const [title, setTitle] = useState("Everyday bench notes");
+  const [title, setTitle] = useState("Everyday toolbox notes");
   const [ids, setIds] = useState(() => [uuidV4(), uuidV4(), nanoId()]);
 
   return (
@@ -139,17 +140,12 @@ export function IdsTool() {
 export function TimestampTool() {
   const now = Date.now();
   const [raw, setRaw] = useState(String(Math.floor(now / 1000)));
-  const parsed = useMemo(() => {
-    const value = raw.trim();
-    if (!value) return null;
-    const asNumber = Number(value);
-    if (Number.isFinite(asNumber) && /^\d+(\.\d+)?$/.test(value)) {
-      const ms = asNumber > 1e12 ? asNumber : asNumber * 1000;
-      return new Date(ms);
-    }
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }, [raw]);
+  const [unit, setUnit] = useState<TimestampUnit>("seconds");
+  const result = useMemo(() => {
+    try { return { date: parseTimestamp(raw, unit), error: "" }; }
+    catch (err) { return { date: null, error: err instanceof Error ? err.message : "Could not parse timestamp" }; }
+  }, [raw, unit]);
+  const parsed = result.date;
 
   return (
     <>
@@ -160,12 +156,20 @@ export function TimestampTool() {
       </header>
       <div className="workspace">
         <section className="panel">
+          <label className="field" style={{ marginBottom: 12 }}>
+            <span>Input format</span>
+            <select value={unit} onChange={(event) => setUnit(event.target.value as TimestampUnit)}>
+              <option value="seconds">Unix seconds</option>
+              <option value="milliseconds">Unix milliseconds</option>
+              <option value="iso">ISO date-time</option>
+            </select>
+          </label>
           <label className="field">
             <span>Unix or ISO</span>
             <input value={raw} onChange={(event) => setRaw(event.target.value)} />
           </label>
           <div className="row" style={{ marginTop: 16 }}>
-            <button className="btn" onClick={() => setRaw(String(Math.floor(Date.now() / 1000)))}>
+            <button className="btn" onClick={() => setRaw(unit === "iso" ? new Date().toISOString() : String(unit === "milliseconds" ? Date.now() : Math.floor(Date.now() / 1000)))}>
               Use now
             </button>
           </div>
@@ -191,7 +195,7 @@ export function TimestampTool() {
               </div>
             </div>
           ) : (
-            <p className="lede">Could not parse that timestamp.</p>
+            <p role="alert" className="lede">{result.error}</p>
           )}
         </section>
       </div>
@@ -200,7 +204,7 @@ export function TimestampTool() {
 }
 
 export function CaseTool() {
-  const [input, setInput] = useState("The everyday bench");
+  const [input, setInput] = useState("The everyday toolbox");
   const out = casesOf(input);
 
   return (

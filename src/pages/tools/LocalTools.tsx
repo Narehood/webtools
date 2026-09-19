@@ -72,7 +72,7 @@ export function QrTool() {
 }
 
 export function JsonTool() {
-  const [input, setInput] = useState('{\n  "hello": "bench"\n}');
+  const [input, setInput] = useState('{\n  "hello": "toolbox"\n}');
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
 
@@ -82,6 +82,7 @@ export function JsonTool() {
       setOutput(JSON.stringify(parsed, null, minified ? 0 : 2));
       setError("");
     } catch (err) {
+      setOutput("");
       setError(err instanceof Error ? err.message : "Invalid JSON");
     }
   }
