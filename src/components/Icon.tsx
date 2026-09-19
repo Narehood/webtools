@@ -239,6 +239,13 @@ export function Icon({ name }: { name: string }) {
           <path d="M8 10h2M12 10h2M16 10h1M8 14h8" />
         </svg>
       );
+    case "billable-hours":
+      return (
+        <svg {...common}>
+          <rect x="5" y="3" width="14" height="18" rx="2" />
+          <path d="M8 7h8M8 11h1M12 11h1M16 11h.01M8 15h1M12 15h1M16 15v3M8 18h5" />
+        </svg>
+      );
     case "units":
       return (
         <svg {...common}>

@@ -1,15 +1,21 @@
 import { useState } from "react";
+import { hashText } from "../../lib/hash";
+import { CopyButton } from "../../components/CopyButton";
 
 export function HashTool() {
   const [input, setInput] = useState("webtools");
   const [algo, setAlgo] = useState("SHA-256");
   const [output, setOutput] = useState("");
+  const [error, setError] = useState("");
 
-  async function run() {
-    const encoded = new TextEncoder().encode(input);
-    const digest = await crypto.subtle.digest(algo, encoded);
-    const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    setOutput(hex);
+  function run() {
+    try {
+      setOutput(hashText(input, algo));
+      setError("");
+    } catch (err) {
+      setOutput("");
+      setError(err instanceof Error ? err.message : "Could not hash text");
+    }
   }
 
   return (
@@ -17,7 +23,7 @@ export function HashTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>Hash & checksum</h1>
-        <p className="lede">Web Crypto in this browser. The string never leaves the tab.</p>
+        <p className="lede">Hash text in this browser. The string never leaves the tab.</p>
       </header>
       <div className="workspace">
         <section className="panel">
@@ -44,6 +50,8 @@ export function HashTool() {
             <span>Digest</span>
             <textarea readOnly value={output} />
           </label>
+          {error && <p role="alert" className="lede">{error}</p>}
+          <CopyButton text={output} />
         </section>
       </div>
     </>
@@ -51,7 +59,7 @@ export function HashTool() {
 }
 
 export function Base64Tool() {
-  const [input, setInput] = useState("hello, bench");
+  const [input, setInput] = useState("hello, toolbox");
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
 
@@ -65,6 +73,7 @@ export function Base64Tool() {
       setOutput(btoa(binary));
       setError("");
     } catch {
+      setOutput("");
       setError("Could not encode that text");
     }
   }
@@ -76,6 +85,7 @@ export function Base64Tool() {
       setOutput(new TextDecoder().decode(bytes));
       setError("");
     } catch {
+      setOutput("");
       setError("That is not valid Base64");
     }
   }
@@ -149,11 +159,7 @@ export function PasswordTool() {
             <button className="btn" onClick={generate}>
               Generate
             </button>
-            {password && (
-              <button className="btn ghost" onClick={() => void navigator.clipboard.writeText(password)}>
-                Copy
-              </button>
-            )}
+            {password && <CopyButton text={password} />}
           </div>
         </section>
         <section className="panel paper">

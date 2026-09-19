@@ -3,6 +3,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { csvToJson, jsonToCsv } from "../../lib/text";
 import { explainCron } from "../../lib/cron";
 import { CopyButton } from "../../components/CopyButton";
+import { useRegex } from "../../hooks/useRegex";
 
 export function DataTool() {
   const [mode, setMode] = useState<"csv-json" | "json-csv" | "yaml-json" | "json-yaml">("csv-json");
@@ -69,20 +70,8 @@ export function DataTool() {
 export function RegexTool() {
   const [pattern, setPattern] = useState("\\b[A-Z][a-z]+\\b");
   const [flags, setFlags] = useState("g");
-  const [sample, setSample] = useState("Ada and Grace built the everyday Bench.");
-  const result = useMemo(() => {
-    try {
-      if (!pattern) return { ok: true as const, matches: [] as { text: string; index: number }[] };
-      const safeFlags = flags.includes("g") ? flags : `${flags}g`;
-      const regex = new RegExp(pattern, safeFlags);
-      const matches = [...sample.matchAll(regex)]
-        .slice(0, 200)
-        .map((match) => ({ text: match[0], index: match.index ?? 0 }));
-      return { ok: true as const, matches };
-    } catch (error) {
-      return { ok: false as const, message: error instanceof Error ? error.message : "Invalid regex" };
-    }
-  }, [pattern, flags, sample]);
+  const [sample, setSample] = useState("Ada and Grace built the everyday toolbox.");
+  const result = useRegex({ pattern, flags, sample });
 
   return (
     <>
@@ -107,9 +96,10 @@ export function RegexTool() {
           </label>
         </section>
         <section className="panel">
-          {result.ok ? (
+          {!result ? <p className="lede" role="status">Checking…</p> : result.ok ? (
             result.matches.length ? (
               <div className="stack">
+                {result.truncated && <p className="lede">Showing the first 200 matches.</p>}
                 {result.matches.map((match, index) => (
                   <div className="stat" key={`${match.index}-${index}`}>
                     <span>Index {match.index}</span>

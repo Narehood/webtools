@@ -73,6 +73,7 @@ export async function encodeCanvas(
     canvas.toBlob((value) => resolve(value), mime, quality),
   );
   if (!blob) throw new Error("This browser could not encode that format");
+  if (blob.type !== mime) throw new Error(`This browser cannot encode ${mime.replace("image/", "").toUpperCase()}. Choose PNG, JPEG, or WebP.`);
   return blob;
 }
 
@@ -106,7 +107,7 @@ export async function sampleProductPng(): Promise<File> {
   ctx.fillStyle = "#f3eee4";
   ctx.font = "700 42px Georgia";
   ctx.textAlign = "center";
-  ctx.fillText("BENCH", 320, 230);
+  ctx.fillText("WEBTOOLS", 320, 230);
   const blob = await new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((value) => (value ? resolve(value) : reject(new Error("Sample failed"))), "image/png"),
   );

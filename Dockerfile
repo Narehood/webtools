@@ -10,7 +10,8 @@ COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.t
 COPY public ./public
 COPY src ./src
 COPY server ./server
-RUN npm run build \
+COPY tests ./tests
+RUN npm test && npm run build \
   && mkdir -p /runtime/node_modules \
   && cp -a node_modules/whoiser /runtime/node_modules/whoiser \
   && if [ -d node_modules/punycode ]; then cp -a node_modules/punycode /runtime/node_modules/punycode; fi \

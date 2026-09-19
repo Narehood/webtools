@@ -54,7 +54,7 @@ export function chmodToSymbolic(bits: ChmodBits) {
 }
 
 export function chmodFromOctal(raw: string): ChmodBits {
-  const digits = raw.trim().replace(/^0/, "");
+  const digits = raw.trim();
   if (!/^[0-7]{3,4}$/.test(digits)) throw new Error("Octal chmod is 3 or 4 digits, like 755 or 0755");
   const padded = digits.padStart(4, "0");
   const special = Number(padded[0]);
