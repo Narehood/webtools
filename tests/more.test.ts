@@ -8,6 +8,7 @@ import { hmacHex } from "../src/lib/hmac.ts";
 import { parseInline, parseMarkdown, safeHref } from "../src/lib/markdown.ts";
 import { makePassphrase, passphraseBits } from "../src/lib/passphrase.ts";
 import { passphraseWords } from "../src/lib/words.ts";
+import { siteFileTarget } from "../server/api.ts";
 
 test("cron lists the next local runs, including day-of-month or weekday", () => {
   const from = new Date(2026, 0, 1, 12, 0, 0);
@@ -34,6 +35,10 @@ test("color values convert among hex, rgb, and hsl", () => {
   assert.equal(formatHex(parseColor("rgb(30, 165, 76)")!), "#1ea54c");
   assert.equal(parseColor("not a color"), null);
   assert.equal(parseColor("rgb(999, 0, 0)"), null);
+  assert.deepEqual(parseColor("rgba(255, 0, 0, 1)"), { r: 255, g: 0, b: 0 });
+  assert.equal(parseColor("rgba(255, 0, 0, 0)"), null);
+  assert.equal(parseColor("rgba(255, 0, 0, 0.5)"), null);
+  assert.equal(parseColor("hsla(0, 100%, 50%, 0)"), null);
 });
 
 test("zone formatting accepts UTC and fixed offsets", () => {
@@ -47,7 +52,7 @@ test("zone formatting accepts UTC and fixed offsets", () => {
 test("hmac matches node and markdown keeps unsafe links as text", async () => {
   const expected = createHmac("sha256", "secret").update("message").digest("hex");
   assert.equal(await hmacHex("message", "secret", "SHA-256"), expected);
-  await assert.rejects(() => hmacHex("message", "", "SHA-256"));
+  assert.throws(() => hmacHex("message", "", "SHA-256"), /Enter a secret/);
   const blocks = parseMarkdown("# Title\n\n- **bold** item\n\n[ok](https://example.com)\n[no](javascript:alert(1))\n\n```\ncode\n```");
   assert.equal(blocks[0].type, "h");
   assert.equal(blocks[1].type, "ul");
@@ -61,9 +66,18 @@ test("hmac matches node and markdown keeps unsafe links as text", async () => {
   assert.equal(parseInline("`code`")[0].type, "code");
 });
 
+test("site file lookups keep an explicit port", () => {
+  assert.equal(siteFileTarget("nas.local:8443").origin, "https://nas.local:8443");
+  assert.equal(siteFileTarget("https://nas.local:8443").origin, "https://nas.local:8443");
+  assert.equal(siteFileTarget("https://nas.local:8443").host, "nas.local");
+  assert.equal(siteFileTarget("2001:db8::1").origin, "https://[2001:db8::1]:443");
+  assert.equal(siteFileTarget("[2001:db8::1]:8443").origin, "https://[2001:db8::1]:8443");
+});
+
 test("passphrases draw from a unique word list and report entropy", () => {
   assert.equal(new Set(passphraseWords).size, passphraseWords.length);
-  assert.equal(passphraseWords.length >= 256, true);
+  assert.equal(passphraseWords.length > 256, true);
+  assert.equal(passphraseBits(6) >= 77, true);
   assert.equal(passphraseBits(6, 256), 48);
   const phrase = makePassphrase(4, "-", ["alpha", "bravo", "charlie", "delta"]);
   assert.equal(phrase.split("-").length, 4);

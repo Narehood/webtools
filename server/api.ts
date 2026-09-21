@@ -362,13 +362,43 @@ const SITE_FILES = [
   { name: "security.txt (root)", path: "/security.txt" },
 ];
 
-function siteHost(raw: string) {
-  return hostnameFrom(raw).replace(/^\[|\]$/g, "");
-}
+export function siteFileTarget(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error("Enter a domain");
 
-function siteOrigin(host: string) {
-  if (!host || /[\s/@\\]/.test(host)) throw new Error("Enter a domain");
-  return host.includes(":") ? `https://[${host}]` : `https://${host}`;
+  let hostname = "";
+  let port = "";
+  if (trimmed.includes("://")) {
+    let url: URL;
+    try {
+      url = new URL(trimmed);
+    } catch {
+      throw new Error("Enter a domain");
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Enter a domain");
+    hostname = url.hostname;
+    port = url.port;
+  } else {
+    const bare = trimmed.replace(/\/.*$/, "").replace(/^\.+|\.+$/g, "");
+    const bracketed = /^\[([^\]]+)\](?::(\d+))?$/.exec(bare);
+    const withPort = /^([^:[\]]+):(\d+)$/.exec(bare);
+    if (bracketed) {
+      hostname = bracketed[1];
+      port = bracketed[2] ?? "";
+    } else if (withPort) {
+      hostname = withPort[1];
+      port = withPort[2];
+    } else {
+      hostname = bare;
+    }
+  }
+
+  hostname = hostname.toLowerCase();
+  if (!hostname || /[\s/@\\]/.test(hostname)) throw new Error("Enter a domain");
+  const portNumber = port === "" ? 443 : Number(port);
+  if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) throw new Error("Enter a domain");
+  const literal = hostname.includes(":") ? `[${hostname}]` : hostname;
+  return { host: hostname, origin: `https://${literal}:${portNumber}` };
 }
 
 function sameSiteHost(originHost: string, nextHost: string) {
@@ -403,8 +433,8 @@ async function readLimitedText(response: Response, maxBytes: number) {
   return { text: new TextDecoder().decode(Buffer.concat(chunks)), truncated };
 }
 
-async function fetchSiteFile(host: string, path: string) {
-  let current = `${siteOrigin(host)}${path}`;
+async function fetchSiteFile(host: string, origin: string, path: string) {
+  let current = `${origin}${path}`;
   for (let hop = 0; hop < 4; hop += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -425,14 +455,15 @@ async function fetchSiteFile(host: string, path: string) {
       }
       const type = response.headers.get("content-type") ?? "";
       const limited = await readLimitedText(response, 48_000);
-      const htmlMiss = !response.ok && /html/i.test(type);
+      const html = /html/i.test(type);
       return {
         name: path,
         url: current,
         status: response.status,
         ok: response.ok,
-        body: htmlMiss ? "" : limited.text,
-        truncated: limited.truncated,
+        body: html ? "" : limited.text,
+        truncated: html ? false : limited.truncated,
+        note: html ? "The response was HTML, not the text file." : undefined,
       };
     } finally {
       clearTimeout(timeout);
@@ -442,16 +473,15 @@ async function fetchSiteFile(host: string, path: string) {
 }
 
 async function lookupSiteFiles(raw: string) {
-  const host = siteHost(raw);
-  siteOrigin(host);
+  const target = siteFileTarget(raw);
   const files = await Promise.all(SITE_FILES.map(async (file) => {
     try {
-      const result = await fetchSiteFile(host, file.path);
+      const result = await fetchSiteFile(target.host, target.origin, file.path);
       return { ...result, name: file.name };
     } catch (error) {
       return {
         name: file.name,
-        url: `${siteOrigin(host)}${file.path}`,
+        url: `${target.origin}${file.path}`,
         status: 0,
         ok: false,
         body: "",
@@ -460,7 +490,7 @@ async function lookupSiteFiles(raw: string) {
       };
     }
   }));
-  return { host, files };
+  return { host: target.host, files };
 }
 
 async function lookupPtr(raw: string) {

@@ -5,6 +5,12 @@ function channel(value: number) {
   return value;
 }
 
+function opaqueAlpha(alpha: string | undefined) {
+  if (alpha == null) return true;
+  if (alpha.endsWith("%")) return Number(alpha.slice(0, -1)) === 100;
+  return Number(alpha) === 1;
+}
+
 export function parseColor(input: string): Rgb | null {
   const text = input.trim();
   const hex = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text);
@@ -13,16 +19,18 @@ export function parseColor(input: string): Rgb | null {
     const value = Number.parseInt(raw, 16);
     return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
   }
-  const rgb = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i.exec(text);
+  const rgb = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(\d*\.?\d+%?))?\s*\)$/i.exec(text);
   if (rgb) {
+    if (!opaqueAlpha(rgb[4])) return null;
     const red = channel(Number(rgb[1]));
     const green = channel(Number(rgb[2]));
     const blue = channel(Number(rgb[3]));
     if (red == null || green == null || blue == null) return null;
     return { r: red, g: green, b: blue };
   }
-  const hsl = /^hsla?\(\s*(\d{1,3}(?:\.\d+)?)\s*,\s*(\d{1,3}(?:\.\d+)?)%\s*,\s*(\d{1,3}(?:\.\d+)?)%/i.exec(text);
+  const hsl = /^hsla?\(\s*(\d{1,3}(?:\.\d+)?)\s*,\s*(\d{1,3}(?:\.\d+)?)%\s*,\s*(\d{1,3}(?:\.\d+)?)%(?:\s*,\s*(\d*\.?\d+%?))?\s*\)$/i.exec(text);
   if (!hsl) return null;
+  if (!opaqueAlpha(hsl[4])) return null;
   const hue = Number(hsl[1]);
   const saturation = Number(hsl[2]);
   const lightness = Number(hsl[3]);

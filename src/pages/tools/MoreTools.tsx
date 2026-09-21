@@ -235,19 +235,13 @@ export function HmacTool() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let cancel = false;
-    hmacHex(message, secret, algorithm).then((value) => {
-      if (cancel) return;
-      setOutput(value);
+    try {
+      setOutput(hmacHex(message, secret, algorithm));
       setError("");
-    }).catch((err: unknown) => {
-      if (cancel) return;
+    } catch (err) {
       setOutput("");
       setError(err instanceof Error ? err.message : "Could not sign");
-    });
-    return () => {
-      cancel = true;
-    };
+    }
   }, [message, secret, algorithm]);
 
   return (
@@ -296,6 +290,7 @@ type SiteFile = {
   ok: boolean;
   body: string;
   truncated: boolean;
+  note?: string;
   error?: string;
 };
 
@@ -348,14 +343,15 @@ export function SiteFilesTool() {
           {files.length ? (
             <div className="stack">
               {files.map((file) => (
-                <article className="record-block" key={file.url}>
+                <article className="record-block" key={file.name}>
                   <h3>
                     {file.name}
                     <span>{file.status ? `HTTP ${file.status}` : "Unreachable"}</span>
                   </h3>
                   <p className="record-empty">{file.url}</p>
                   {file.error ? <p className="lede" role="alert">{file.error}</p> : null}
-                  {file.body ? <pre className="whois-block">{file.body}</pre> : !file.error && <p className="record-empty">{file.ok ? "Empty file" : "Not found"}</p>}
+                  {file.note ? <p className="record-empty">{file.note}</p> : null}
+                  {file.body ? <pre className="whois-block">{file.body}</pre> : !file.error && !file.note && <p className="record-empty">{file.ok ? "Empty file" : "Not found"}</p>}
                   {file.truncated ? <p className="record-empty">Showing the first 48 KB.</p> : null}
                 </article>
               ))}

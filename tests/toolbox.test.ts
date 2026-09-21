@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { aspectOf, convertBases, decodeHtml, encodeHtml, loremIpsum, percentChange, percentOfAmount, shareOfWhole, textStats, transformEncoded, transformLines } from "../src/lib/toolbox.ts";
-import { whoisHighlights, whoisSections } from "../src/lib/whoisView.ts";
+import { formatWhoisDate, whoisHighlights, whoisSections } from "../src/lib/whoisView.ts";
 
 test("text stats count words, blank lines, and reading time", () => {
   assert.deepEqual(textStats(""), {
@@ -66,4 +67,25 @@ test("whois records become labeled sections with UTC dates", () => {
   assert.equal(highlights.registrar, "Reserved");
   assert.deepEqual(highlights.nameservers, ["A.IANA-SERVERS.NET", "B.IANA-SERVERS.NET"]);
   assert.equal(highlights.statuses.length, 2);
+  assert.equal(formatWhoisDate("2025-08-13T04:00:00Z"), "Aug 13, 2025, 4:00 AM UTC");
+  assert.equal(formatWhoisDate("2025-08-13T00:00:00-04:00"), "Aug 13, 2025, 4:00 AM UTC");
+});
+
+test("zoneless whois timestamps stay UTC outside UTC", () => {
+  const moduleUrl = new URL("../src/lib/whoisView.ts", import.meta.url).href;
+  const result = spawnSync(process.execPath, [
+    "--experimental-strip-types",
+    "--input-type=module",
+    "-e",
+    `import { formatWhoisDate } from ${JSON.stringify(moduleUrl)};
+     const formatted = formatWhoisDate("2025-08-13 04:00:00");
+     if (formatted !== "Aug 13, 2025, 4:00 AM UTC") {
+       console.error(formatted);
+       process.exit(1);
+     }`,
+  ], {
+    env: { ...process.env, TZ: "America/New_York" },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });

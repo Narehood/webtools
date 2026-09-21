@@ -40,10 +40,27 @@ function formatValue(value: unknown): string {
 
 export function formatWhoisDate(value: string) {
   const trimmed = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return value;
-  const parsed = Date.parse(trimmed);
-  if (Number.isNaN(parsed)) return value;
-  const date = new Date(parsed);
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?$/i.exec(trimmed);
+  if (!match) return value;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const dayOfMonth = Number(match[3]);
+  const hour = match[4] == null ? 0 : Number(match[4]);
+  const minute = match[5] == null ? 0 : Number(match[5]);
+  const second = match[6] == null ? 0 : Number(match[6]);
+  if (month < 1 || month > 12 || dayOfMonth < 1 || dayOfMonth > 31 || hour > 23 || minute > 59 || second > 60) return value;
+  let utc = Date.UTC(year, month - 1, dayOfMonth, hour, minute, second);
+  const zone = match[7];
+  if (zone && zone.toUpperCase() !== "Z") {
+    const sign = zone.startsWith("-") ? -1 : 1;
+    const digits = zone.slice(1).replace(":", "");
+    const offsetHours = Number(digits.slice(0, 2));
+    const offsetMinutes = Number(digits.slice(2) || "0");
+    if (offsetHours > 14 || offsetMinutes > 59) return value;
+    utc -= sign * ((offsetHours * 60) + offsetMinutes) * 60_000;
+  }
+  if (Number.isNaN(utc)) return value;
+  const date = new Date(utc);
   const day = date.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
   const time = date.toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit" });
   return `${day}, ${time} UTC`.replace(/\u202f/g, " ");

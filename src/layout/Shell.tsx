@@ -19,7 +19,10 @@ export function Shell() {
     const q = query.trim().toLowerCase();
     const matches = (tool: Tool) => !q || `${tool.name} ${tool.blurb}`.toLowerCase().includes(q);
     const favoriteTools = favorites.map((item) => getTool(item)).filter((tool): tool is Tool => Boolean(tool)).filter(matches);
-    const recentTools = recent.map((item) => getTool(item)).filter((tool): tool is Tool => Boolean(tool)).filter(matches);
+    const recentTools = recent
+      .map((item) => getTool(item))
+      .filter((tool): tool is Tool => Boolean(tool))
+      .filter((tool) => matches(tool) && !favoriteTools.some((favorite) => favorite.slug === tool.slug));
     const groups = categories
       .filter((category) => category.id !== "all")
       .map((category) => ({
