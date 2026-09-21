@@ -265,7 +265,7 @@ Decode PEM certificates, CSRs, and OpenSSH public keys (subject, SAN, expiry, fi
 
 ## Settings
 
-Open **Settings** from the sidebar or the header. Light, dark, and system appearance, plus the accent color, are saved in this browser. Star a tool on its card or on the tool page to pin it under Favorites on the home page and at the top of the sidebar. Favorites can also be removed from Settings. The last few tools you open appear under Recent. Press `/` to focus search. Category chips on the home page filter the catalog.
+Open **Settings** from the sidebar or the header. Light, dark, and system appearance, plus the accent color, are saved in this browser. Star a tool from the sidebar, its card, or its page to pin it under Favorites on the home page and at the top of the sidebar. Favorites can also be removed from Settings. Recent tools stay off until you turn them on in Settings. Press `/` to focus search. Category chips on the home page filter the catalog.
 
 ## Notes
 

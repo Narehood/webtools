@@ -18,6 +18,7 @@ const THEME_KEY = "webtools.theme";
 const ACCENT_KEY = "webtools.accent";
 const FAVORITES_KEY = "webtools.favorites";
 const RECENT_KEY = "webtools.recent";
+const RECENT_ENABLED_KEY = "webtools.recentEnabled";
 const RECENT_LIMIT = 6;
 
 type Prefs = {
@@ -29,6 +30,8 @@ type Prefs = {
   isFavorite: (slug: string) => boolean;
   toggleFavorite: (slug: string) => void;
   clearFavorites: () => void;
+  recentEnabled: boolean;
+  setRecentEnabled: (enabled: boolean) => void;
   recent: string[];
   rememberTool: (slug: string) => void;
   clearRecent: () => void;
@@ -80,6 +83,10 @@ export function loadRecent() {
   return loadSlugs(RECENT_KEY, true).slice(0, RECENT_LIMIT);
 }
 
+export function loadRecentEnabled() {
+  return readStorage(RECENT_ENABLED_KEY) === "true";
+}
+
 function systemTheme(): "light" | "dark" {
   if (typeof matchMedia !== "function") return "dark";
   return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -125,6 +132,7 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>(loadTheme);
   const [accent, setAccentState] = useState(() => normalizeAccent(readStorage(ACCENT_KEY)));
   const [favorites, setFavorites] = useState<string[]>(loadFavorites);
+  const [recentEnabled, setRecentEnabled] = useState(loadRecentEnabled);
   const [recent, setRecent] = useState<string[]>(loadRecent);
 
   useLayoutEffect(() => {
@@ -149,14 +157,18 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     writeStorage(RECENT_KEY, JSON.stringify(recent));
   }, [recent]);
 
+  useEffect(() => {
+    writeStorage(RECENT_ENABLED_KEY, recentEnabled ? "true" : "false");
+  }, [recentEnabled]);
+
   const rememberTool = useCallback((slug: string) => {
-    if (!getTool(slug)) return;
+    if (!recentEnabled || !getTool(slug)) return;
     setRecent((current) => {
       const next = [slug, ...current.filter((item) => item !== slug)].slice(0, RECENT_LIMIT);
       if (next.length === current.length && next.every((item, index) => item === current[index])) return current;
       return next;
     });
-  }, []);
+  }, [recentEnabled]);
 
   const value = useMemo<Prefs>(() => ({
     theme,
@@ -170,10 +182,12 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
       setFavorites((current) => current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug]);
     },
     clearFavorites: () => setFavorites([]),
+    recentEnabled,
+    setRecentEnabled,
     recent,
     rememberTool,
     clearRecent: () => setRecent([]),
-  }), [theme, accent, favorites, recent, rememberTool]);
+  }), [theme, accent, favorites, recentEnabled, recent, rememberTool]);
 
   return <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>;
 }

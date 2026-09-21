@@ -6,10 +6,30 @@ import { Icon } from "../components/Icon";
 import { ToolErrorBoundary } from "../components/ToolErrorBoundary";
 import { usePrefs } from "../prefs/Prefs";
 
+function NavTools({ tools: items, onOpen }: { tools: Tool[]; onOpen: () => void }) {
+  return (
+    <div className="nav-list">
+      {items.map((tool) => (
+        <div className="nav-row" key={tool.slug}>
+          <NavLink
+            to={`/${tool.slug}`}
+            className={({ isActive }) => `nav-tool${isActive ? " active" : ""}`}
+            onClick={onOpen}
+          >
+            <Icon name={tool.slug} />
+            {tool.name}
+          </NavLink>
+          <FavoriteButton slug={tool.slug} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Shell() {
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const { favorites, recent, rememberTool } = usePrefs();
+  const { favorites, recent, recentEnabled, rememberTool } = usePrefs();
   const searchRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -19,10 +39,12 @@ export function Shell() {
     const q = query.trim().toLowerCase();
     const matches = (tool: Tool) => !q || `${tool.name} ${tool.blurb}`.toLowerCase().includes(q);
     const favoriteTools = favorites.map((item) => getTool(item)).filter((tool): tool is Tool => Boolean(tool)).filter(matches);
-    const recentTools = recent
-      .map((item) => getTool(item))
-      .filter((tool): tool is Tool => Boolean(tool))
-      .filter((tool) => matches(tool) && !favoriteTools.some((favorite) => favorite.slug === tool.slug));
+    const recentTools = recentEnabled
+      ? recent
+        .map((item) => getTool(item))
+        .filter((tool): tool is Tool => Boolean(tool))
+        .filter((tool) => matches(tool) && !favoriteTools.some((favorite) => favorite.slug === tool.slug))
+      : [];
     const groups = categories
       .filter((category) => category.id !== "all")
       .map((category) => ({
@@ -31,7 +53,7 @@ export function Shell() {
       }))
       .filter((group) => group.tools.length > 0);
     return { favoriteTools, recentTools, groups };
-  }, [query, favorites, recent]);
+  }, [query, favorites, recent, recentEnabled]);
 
   useEffect(() => {
     if (current) rememberTool(current.slug);
@@ -76,64 +98,19 @@ export function Shell() {
         {grouped.favoriteTools.length > 0 && (
           <div>
             <div className="nav-label">Favorites</div>
-            <div className="nav-list">
-              {grouped.favoriteTools.map((tool) => (
-                <NavLink
-                  key={tool.slug}
-                  to={`/${tool.slug}`}
-                  className={({ isActive }) => `nav-tool${isActive ? " active" : ""}`}
-                  onClick={() => {
-                    setQuery("");
-                    closeMenu();
-                  }}
-                >
-                  <Icon name={tool.slug} />
-                  {tool.name}
-                </NavLink>
-              ))}
-            </div>
+            <NavTools tools={grouped.favoriteTools} onOpen={() => { setQuery(""); closeMenu(); }} />
           </div>
         )}
         {grouped.recentTools.length > 0 && (
           <div>
             <div className="nav-label">Recent</div>
-            <div className="nav-list">
-              {grouped.recentTools.map((tool) => (
-                <NavLink
-                  key={tool.slug}
-                  to={`/${tool.slug}`}
-                  className={({ isActive }) => `nav-tool${isActive ? " active" : ""}`}
-                  onClick={() => {
-                    setQuery("");
-                    closeMenu();
-                  }}
-                >
-                  <Icon name={tool.slug} />
-                  {tool.name}
-                </NavLink>
-              ))}
-            </div>
+            <NavTools tools={grouped.recentTools} onOpen={() => { setQuery(""); closeMenu(); }} />
           </div>
         )}
         {grouped.groups.map((group) => (
           <div key={group.id}>
             <div className="nav-label">{group.label}</div>
-            <div className="nav-list">
-              {group.tools.map((tool) => (
-                <NavLink
-                  key={tool.slug}
-                  to={`/${tool.slug}`}
-                  className={({ isActive }) => `nav-tool${isActive ? " active" : ""}`}
-                  onClick={() => {
-                    setQuery("");
-                    closeMenu();
-                  }}
-                >
-                  <Icon name={tool.slug} />
-                  {tool.name}
-                </NavLink>
-              ))}
-            </div>
+            <NavTools tools={group.tools} onOpen={() => { setQuery(""); closeMenu(); }} />
           </div>
         ))}
         </div>
