@@ -356,6 +356,113 @@ async function lookupEgress() {
   }
 }
 
+const SITE_FILES = [
+  { name: "robots.txt", path: "/robots.txt" },
+  { name: "security.txt", path: "/.well-known/security.txt" },
+  { name: "security.txt (root)", path: "/security.txt" },
+];
+
+function siteHost(raw: string) {
+  return hostnameFrom(raw).replace(/^\[|\]$/g, "");
+}
+
+function siteOrigin(host: string) {
+  if (!host || /[\s/@\\]/.test(host)) throw new Error("Enter a domain");
+  return host.includes(":") ? `https://[${host}]` : `https://${host}`;
+}
+
+function sameSiteHost(originHost: string, nextHost: string) {
+  const left = originHost.toLowerCase();
+  const right = nextHost.toLowerCase();
+  if (left === right) return true;
+  const bare = (host: string) => host.startsWith("www.") ? host.slice(4) : host;
+  return bare(left) === bare(right);
+}
+
+async function readLimitedText(response: Response, maxBytes: number) {
+  const reader = response.body?.getReader();
+  if (!reader) return { text: "", truncated: false };
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let truncated = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      if (size + value.byteLength > maxBytes) {
+        chunks.push(Buffer.from(value.subarray(0, maxBytes - size)));
+        truncated = true;
+        break;
+      }
+      chunks.push(Buffer.from(value));
+      size += value.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return { text: new TextDecoder().decode(Buffer.concat(chunks)), truncated };
+}
+
+async function fetchSiteFile(host: string, path: string) {
+  let current = `${siteOrigin(host)}${path}`;
+  for (let hop = 0; hop < 4; hop += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(current, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "User-Agent": "WebTools-Files/0.1", Accept: "text/plain" },
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        await response.body?.cancel().catch(() => {});
+        if (!location) throw new Error("Redirect without a location");
+        const next = new URL(location, current);
+        if (next.protocol !== "https:" || !sameSiteHost(host, next.hostname)) throw new Error("Redirect left this host");
+        current = next.toString();
+        continue;
+      }
+      const type = response.headers.get("content-type") ?? "";
+      const limited = await readLimitedText(response, 48_000);
+      const htmlMiss = !response.ok && /html/i.test(type);
+      return {
+        name: path,
+        url: current,
+        status: response.status,
+        ok: response.ok,
+        body: htmlMiss ? "" : limited.text,
+        truncated: limited.truncated,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error("Too many redirects");
+}
+
+async function lookupSiteFiles(raw: string) {
+  const host = siteHost(raw);
+  siteOrigin(host);
+  const files = await Promise.all(SITE_FILES.map(async (file) => {
+    try {
+      const result = await fetchSiteFile(host, file.path);
+      return { ...result, name: file.name };
+    } catch (error) {
+      return {
+        name: file.name,
+        url: `${siteOrigin(host)}${file.path}`,
+        status: 0,
+        ok: false,
+        body: "",
+        truncated: false,
+        error: error instanceof Error ? error.message : "Unreachable",
+      };
+    }
+  }));
+  return { host, files };
+}
+
 async function lookupPtr(raw: string) {
   const ip = raw.trim();
   if (!isIP(ip)) throw new Error("Enter an IPv4 or IPv6 address");
@@ -438,6 +545,12 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === "/api/ptr" && req.method === "POST") {
       const body = await readJson(req);
       send(res, 200, await lookupPtr(String(body.ip ?? body.host ?? body.address ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/site-files" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await lookupSiteFiles(String(body.domain ?? body.host ?? body.url ?? "")));
       return true;
     }
 

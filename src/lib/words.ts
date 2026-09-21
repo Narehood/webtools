@@ -1,0 +1,18 @@
+export const passphraseWords = [
+  "apple", "arrow", "attic", "autumn", "bacon", "badge", "baker", "balcony", "ballot", "bamboo", "banana", "banner", "barley", "barrel", "basin", "basket",
+  "beacon", "beard", "beaver", "beetle", "berry", "bicycle", "birch", "biscuit", "blanket", "blender", "blizzard", "blossom", "bluebird", "border", "bottle", "boulder",
+  "branch", "brass", "bread", "breeze", "brick", "bridge", "bronze", "brook", "broom", "bucket", "buffalo", "bundle", "butter", "button", "cabin", "cactus",
+  "camera", "candle", "canyon", "canvas", "captain", "carbon", "carpet", "carrot", "castle", "cattle", "cavern", "celery", "cellar", "cement", "cereal", "chair",
+  "chalk", "channel", "chapel", "charcoal", "cheese", "cherry", "chestnut", "chicken", "chimney", "circle", "circus", "citrus", "cliff", "closet", "cloud", "clover",
+  "cobalt", "cocoa", "coffee", "comet", "compass", "copper", "coral", "corner", "cotton", "couch", "cougar", "cradle", "crane", "crater", "crayon", "cricket",
+  "crystal", "cucumber", "cupboard", "curtain", "cushion", "dagger", "daisy", "dancer", "daylight", "dealer", "desert", "diamond", "dinner", "dolphin", "donkey", "dragon",
+  "drawer", "driver", "eagle", "earthen", "eclipse", "editor", "elbow", "elder", "ember", "engine", "eraser", "falcon", "farmer", "feather", "fence", "fennel",
+  "ferry", "fiddle", "field", "figure", "finger", "firefly", "fisher", "flask", "flavor", "flax", "flight", "flower", "flute", "forest", "fossil", "fountain",
+  "foxglove", "freezer", "friend", "frog", "frost", "galaxy", "garden", "garlic", "gateway", "gazelle", "gecko", "ginger", "glacier", "glider", "globe", "gopher",
+  "granite", "grape", "gravel", "guitar", "hammer", "hamlet", "harbor", "harvest", "hazel", "helmet", "heron", "hickory", "highway", "honey", "horizon", "horse",
+  "iceberg", "iguana", "inkpot", "insect", "island", "jacket", "jaguar", "jasmine", "jigsaw", "journal", "jungle", "kettle", "kernel", "keypad", "kingdom", "kitten",
+  "ladder", "lantern", "laptop", "lava", "lemon", "leopard", "letter", "lighthouse", "lilac", "linen", "lizard", "lobster", "locksmith", "lotus", "lumber", "magnet",
+  "mango", "maple", "marble", "market", "meadow", "melon", "meteor", "mineral", "mirror", "monkey", "morning", "mortar", "mosaic", "mountain", "muffin", "mushroom",
+  "mustard", "napkin", "nectar", "needle", "nephew", "nickel", "noodle", "notebook", "nutmeg", "oak", "ocean", "olive", "onion", "orange", "orchid", "otter",
+  "oyster", "paddle", "palace", "panda", "panther", "paper", "parrot", "pebble", "pelican", "pencil", "pepper", "piano", "pickle", "pigeon", "pillow", "pilot",
+];

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { RecordList } from "../../components/RecordList";
 
 type SslResult = {
   host: string;
@@ -50,7 +51,7 @@ export function SslTool() {
         <h1>SSL certificate</h1>
         <p className="lede">This host opens a TLS session and reads the peer certificate. Nothing is stored.</p>
       </header>
-      <div className="workspace">
+      <div className="workspace report">
         <form className="panel" onSubmit={onSubmit}>
           <label className="field">
             <span>Host or URL</span>
@@ -63,42 +64,76 @@ export function SslTool() {
           </div>
         </form>
         <section className="panel">
-          {error && <p className="lede">{error}</p>}
+          {error && <p className="lede" role="alert">{error}</p>}
           {result ? (
-            <div className="stack">
-              <span className={`status-pill ${result.authorized && result.daysRemaining > 0 ? "up" : "down"}`}>
-                {result.authorized ? "Trusted" : "Not trusted"} · {result.daysRemaining} days left
-              </span>
-              <div className="stat-grid">
-                <div className="stat">
-                  <span>Issuer</span>
-                  <b>{result.issuer.O || result.issuer.CN || "—"}</b>
-                </div>
-                <div className="stat">
-                  <span>Expires</span>
-                  <b>{result.validTo}</b>
-                </div>
-                <div className="stat">
-                  <span>Protocol</span>
-                  <b>{result.protocol || "—"}</b>
-                </div>
-                <div className="stat">
-                  <span>Subject</span>
-                  <b className="wrap">{result.subject.CN || result.host}</b>
-                </div>
-              </div>
-              <p className="lede" style={{ marginBottom: 0 }}>
-                {result.altNames || "No SAN listed"}
-                <br />
-                {result.fingerprint256}
-              </p>
-            </div>
+            <SslReport result={result} />
           ) : (
-            !error && <p className="lede">Expiry, issuer, and fingerprint land here.</p>
+            !error && <p className="lede">Expiry, issuer, names, and fingerprint land here.</p>
           )}
         </section>
       </div>
     </>
+  );
+}
+
+function formatCertDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function certNames(value: string) {
+  return value.split(/,\s*/).map((item) => item.replace(/^[A-Za-z0-9.]+:/, "").trim()).filter(Boolean);
+}
+
+function SslReport({ result }: { result: SslResult }) {
+  const rows = [
+    ["Host", `${result.host}:${result.port}`],
+    ["Protocol", result.protocol || "—"],
+    ["Valid from", formatCertDate(result.validFrom)],
+    ["Valid to", formatCertDate(result.validTo)],
+    ["Days remaining", String(result.daysRemaining)],
+    ["Serial", result.serialNumber],
+    ["SHA-256", result.fingerprint256],
+    ...Object.entries(result.subject).filter(([, value]) => value).map(([key, value]) => [`Subject ${key}`, value]),
+    ...Object.entries(result.issuer).filter(([, value]) => value).map(([key, value]) => [`Issuer ${key}`, value]),
+    ...(result.authorizationError ? [["Trust error", result.authorizationError]] : []),
+  ];
+  return (
+    <div className="stack">
+      <span className={`status-pill ${result.authorized && result.daysRemaining > 0 ? "up" : "down"}`}>
+        {result.authorized ? "Trusted" : "Not trusted"} · {result.daysRemaining} days left
+      </span>
+      <div className="stat-grid">
+        <div className="stat">
+          <span>Issued to</span>
+          <b className="wrap">{result.subject.CN || result.host}</b>
+        </div>
+        <div className="stat">
+          <span>Issuer</span>
+          <b className="wrap">{result.issuer.O || result.issuer.CN || "—"}</b>
+        </div>
+        <div className="stat">
+          <span>Expires</span>
+          <b className="wrap">{formatCertDate(result.validTo)}</b>
+        </div>
+        <div className="stat">
+          <span>Protocol</span>
+          <b>{result.protocol || "—"}</b>
+        </div>
+      </div>
+      <table className="meta-table">
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label}>
+              <td>{label}</td>
+              <td>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <RecordList title="Subject alternative names" items={certNames(result.altNames)} empty="No names listed" />
+    </div>
   );
 }
 
@@ -144,7 +179,7 @@ export function HeadersTool() {
         <h1>Headers & redirects</h1>
         <p className="lede">Follows up to ten hops from this host so you can see the chain and the headers.</p>
       </header>
-      <div className="workspace">
+      <div className="workspace report">
         <form className="panel" onSubmit={onSubmit}>
           <label className="field">
             <span>URL</span>
@@ -157,17 +192,28 @@ export function HeadersTool() {
           </div>
         </form>
         <section className="panel">
-          {error && <p className="lede">{error}</p>}
+          {error && <p className="lede" role="alert">{error}</p>}
           {chain.length ? (
             <div className="stack">
               {chain.map((hop, index) => (
-                <div className="stat" key={`${hop.url}-${index}`}>
-                  <span>
-                    Hop {index + 1} · {hop.status} {hop.statusText}
-                  </span>
-                  <b className="wrap">{hop.url}</b>
-                  <pre className="whois-block">{JSON.stringify(hop.headers, null, 2)}</pre>
-                </div>
+                <article className="record-block" key={`${hop.url}-${index}`}>
+                  <h3>
+                    Hop {index + 1}
+                    <span>{hop.status} {hop.statusText}</span>
+                  </h3>
+                  <p className="wrap">{hop.url}</p>
+                  {hop.location && <p className="record-empty">Next: {hop.location}</p>}
+                  <table className="meta-table">
+                    <tbody>
+                      {Object.entries(hop.headers).map(([name, value]) => (
+                        <tr key={name}>
+                          <td>{name}</td>
+                          <td>{value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </article>
               ))}
             </div>
           ) : (
@@ -221,7 +267,7 @@ export function MailTool() {
         <h1>Mail auth</h1>
         <p className="lede">MX plus SPF, DMARC, and a handful of common DKIM selectors — resolved here.</p>
       </header>
-      <div className="workspace">
+      <div className="workspace report">
         <form className="panel" onSubmit={onSubmit}>
           <label className="field">
             <span>Domain</span>
@@ -234,36 +280,27 @@ export function MailTool() {
           </div>
         </form>
         <section className="panel">
-          {error && <p className="lede">{error}</p>}
+          {error && <p className="lede" role="alert">{error}</p>}
           {result ? (
             <div className="stack">
-              <div className="stat">
-                <span>MX</span>
-                <b className="wrap">
-                  {result.mx.length
-                    ? result.mx.map((item) => `${item.priority} ${item.exchange}`).join(" · ")
-                    : "None"}
-                </b>
-              </div>
-              <div className="stat">
-                <span>SPF</span>
-                <b className="wrap">{result.spf.join(" ") || "None"}</b>
-              </div>
-              <div className="stat">
-                <span>DMARC</span>
-                <b className="wrap">{result.dmarc.join(" ") || "None"}</b>
-              </div>
-              <div className="stat">
-                <span>DKIM</span>
-                <b className="wrap">
-                  {result.dkim.length
-                    ? result.dkim.map((item) => `${item.selector}: found`).join(" · ")
-                    : "No common selectors found"}
-                </b>
-              </div>
+              <h2>{result.domain}</h2>
+              <RecordList
+                title="MX"
+                items={result.mx.map((item) => `${item.priority}  ${item.exchange}`)}
+                empty="No MX records"
+              />
+              <RecordList title="SPF" items={result.spf} empty="No SPF record" />
+              <RecordList title="DMARC" items={result.dmarc} empty="No DMARC record" />
+              {result.dkim.length ? (
+                result.dkim.map((item) => (
+                  <RecordList key={item.selector} title={`DKIM · ${item.selector}`} items={item.records} empty="No record" />
+                ))
+              ) : (
+                <RecordList title="DKIM" items={[]} empty="No common selectors found" />
+              )}
             </div>
           ) : (
-            !error && <p className="lede">MX, SPF, and DMARC land here.</p>
+            !error && <p className="lede">MX, SPF, DMARC, and DKIM land here, one record per line.</p>
           )}
         </section>
       </div>

@@ -266,6 +266,98 @@ export function Icon({ name }: { name: string }) {
           <path d="M16 5v3h3M10 12h6M10 15h4" />
         </svg>
       );
+    case "count":
+      return (
+        <svg {...common}>
+          <path d="M5 7h14M5 12h14M5 17h8" />
+        </svg>
+      );
+    case "bases":
+      return (
+        <svg {...common}>
+          <path d="M7 17V7l5 6 5-6v10" />
+        </svg>
+      );
+    case "encode":
+      return (
+        <svg {...common}>
+          <path d="M8 7l-4 5 4 5M16 7l4 5-4 5" />
+        </svg>
+      );
+    case "lorem":
+      return (
+        <svg {...common}>
+          <path d="M5 6h14M5 10h10M5 14h14M5 18h7" />
+        </svg>
+      );
+    case "lines":
+      return (
+        <svg {...common}>
+          <path d="M8 6h11M8 12h11M8 18h11M5 6h.01M5 12h.01M5 18h.01" />
+        </svg>
+      );
+    case "percent":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="2" />
+          <circle cx="17" cy="17" r="2" />
+          <path d="M18 6L6 18" />
+        </svg>
+      );
+    case "aspect":
+      return (
+        <svg {...common}>
+          <rect x="4" y="7" width="16" height="10" rx="1" />
+          <path d="M8 7V5M16 7V5M8 19v-2M16 19v-2" />
+        </svg>
+      );
+    case "zones":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M4 12h16M12 4c2.2 2.4 2.2 13.6 0 16M12 4c-2.2 2.4-2.2 13.6 0 16" />
+        </svg>
+      );
+    case "color-convert":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="9" r="3" />
+          <circle cx="15" cy="10" r="3" />
+          <circle cx="11" cy="15" r="3" />
+        </svg>
+      );
+    case "markdown":
+      return (
+        <svg {...common}>
+          <path d="M5 6h14v12H5zM8 15V9l2 2 2-2v6M16 15l2-3-2-3" />
+        </svg>
+      );
+    case "passphrase":
+      return (
+        <svg {...common}>
+          <path d="M6 8h12M6 12h8M6 16h10" />
+        </svg>
+      );
+    case "hmac":
+      return (
+        <svg {...common}>
+          <path d="M8 7l-3 5 3 5M16 7l3 5-3 5M10 16l4-8" />
+        </svg>
+      );
+    case "site-files":
+      return (
+        <svg {...common}>
+          <path d="M7 4h7l4 4v12H7z" />
+          <path d="M14 4v4h4M9 13h6M9 16h4" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

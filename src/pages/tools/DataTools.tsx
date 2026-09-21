@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { csvToJson, jsonToCsv } from "../../lib/text";
-import { explainCron } from "../../lib/cron";
+import { explainCron, nextCronRuns } from "../../lib/cron";
 import { CopyButton } from "../../components/CopyButton";
 import { useRegex } from "../../hooks/useRegex";
 
@@ -123,9 +123,14 @@ export function CronTool() {
   const [expression, setExpression] = useState("*/15 9-17 * * 1-5");
   const result = useMemo(() => {
     try {
-      return { ok: true as const, text: explainCron(expression) };
+      const text = explainCron(expression);
+      try {
+        return { ok: true as const, text, runs: nextCronRuns(expression, new Date(), 5), runError: "" };
+      } catch (error) {
+        return { ok: true as const, text, runs: [] as Date[], runError: error instanceof Error ? error.message : "No upcoming runs" };
+      }
     } catch (error) {
-      return { ok: false as const, text: error instanceof Error ? error.message : "Could not read cron" };
+      return { ok: false as const, text: error instanceof Error ? error.message : "Could not read cron", runs: [] as Date[], runError: "" };
     }
   }, [expression]);
 
@@ -134,18 +139,32 @@ export function CronTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>Cron explainer</h1>
-        <p className="lede">Five fields: minute, hour, day of month, month, day of week.</p>
+        <p className="lede">Five fields: minute, hour, day of month, month, day of week. The next runs use this computer’s local time.</p>
       </header>
-      <div className="workspace">
+      <div className="workspace report">
         <section className="panel">
           <label className="field">
             <span>Expression</span>
-            <input value={expression} onChange={(event) => setExpression(event.target.value)} />
+            <input value={expression} onChange={(event) => setExpression(event.target.value)} spellCheck={false} />
           </label>
         </section>
         <section className="panel paper">
           <h3>In English</h3>
           <p className="lede">{result.text}</p>
+          {result.ok && (
+            <>
+              <h3>Next runs</h3>
+              {result.runs.length ? (
+                <ul className="record-list">
+                  {result.runs.map((date) => (
+                    <li key={date.toISOString()}>{date.toLocaleString()}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="lede">{result.runError}</p>
+              )}
+            </>
+          )}
         </section>
       </div>
     </>

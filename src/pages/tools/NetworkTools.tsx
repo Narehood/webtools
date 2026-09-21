@@ -1,38 +1,15 @@
 import { useState, type FormEvent } from "react";
-
-function pickString(value: unknown): string {
-  if (typeof value === "string" && value.trim()) return value;
-  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
-  return "";
-}
-
-function pickList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
-  if (typeof value === "string" && value) return [value];
-  return [];
-}
-
-function flattenWhois(result: Record<string, unknown>) {
-  const records = Object.values(result).filter(
-    (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item),
-  );
-  const merged: Record<string, unknown> = {};
-  for (const record of records) Object.assign(merged, record);
-  return {
-    domain: pickString(merged["Domain Name"]) || pickString(merged.domain),
-    registrar: pickString(merged.Registrar),
-    created: pickString(merged["Created Date"]) || pickString(merged["Creation Date"]),
-    expires: pickString(merged["Expiry Date"]) || pickString(merged["Registry Expiry Date"]),
-    nameservers: pickList(merged["Name Server"]),
-  };
-}
+import { CopyButton } from "../../components/CopyButton";
+import { RecordList } from "../../components/RecordList";
+import { whoisHighlights, whoisPlainText, whoisSections } from "../../lib/whoisView";
 
 export function WhoisTool() {
   const [domain, setDomain] = useState("cloudflare.com");
-  const [summary, setSummary] = useState<ReturnType<typeof flattenWhois> | null>(null);
-  const [raw, setRaw] = useState("");
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const highlights = result ? whoisHighlights(result) : null;
+  const sections = result ? whoisSections(result) : [];
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -46,12 +23,9 @@ export function WhoisTool() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "WHOIS failed");
-      const result = payload.result as Record<string, unknown>;
-      setSummary(flattenWhois(result));
-      setRaw(JSON.stringify(result, null, 2));
+      setResult((payload.result ?? {}) as Record<string, unknown>);
     } catch (err) {
-      setSummary(null);
-      setRaw("");
+      setResult(null);
       setError(err instanceof Error ? err.message : "WHOIS failed");
     } finally {
       setBusy(false);
@@ -64,11 +38,10 @@ export function WhoisTool() {
         <span className="badge network">This server</span>
         <h1>WHOIS</h1>
         <p className="lede">
-          Queries WHOIS servers from this machine — registrar, dates, and nameservers without a
-          third-party lookup site.
+          Queries WHOIS servers from this machine and lays the record out as labeled fields.
         </p>
       </header>
-      <div className="workspace">
+      <div className="workspace report">
         <form className="panel" onSubmit={onSubmit}>
           <label className="field">
             <span>Domain</span>
@@ -81,32 +54,65 @@ export function WhoisTool() {
           </div>
         </form>
         <section className="panel">
-          {error && <p className="lede">{error}</p>}
-          {summary ? (
+          {error && <p className="lede" role="alert">{error}</p>}
+          {highlights ? (
             <div className="stack">
-              <div className="stat-grid">
-                <div className="stat">
-                  <span>Registrar</span>
-                  <b>{summary.registrar || "—"}</b>
-                </div>
-                <div className="stat">
-                  <span>Expires</span>
-                  <b>{summary.expires ? summary.expires.slice(0, 10) : "—"}</b>
-                </div>
+              <div className="row">
+                <h2>Record</h2>
+                <CopyButton text={whoisPlainText(sections)} />
               </div>
-              <p className="lede" style={{ marginBottom: 0 }}>
-                Created {summary.created ? summary.created.slice(0, 10) : "—"}
-                <br />
-                NS: {summary.nameservers.slice(0, 4).join(", ") || "—"}
-              </p>
-              <pre className="whois-block">{raw}</pre>
+              <div className="stat-grid">
+                <Fact label="Domain" value={highlights.domain} />
+                <Fact label="Registrar" value={highlights.registrar} />
+                <Fact label="Created" value={highlights.created} />
+                <Fact label="Expires" value={highlights.expires} />
+                {highlights.updated ? <Fact label="Updated" value={highlights.updated} /> : null}
+                {highlights.dnssec ? <Fact label="DNSSEC" value={highlights.dnssec} /> : null}
+              </div>
+              <RecordList title="Name servers" items={highlights.nameservers} empty="No name servers listed" />
+              <RecordList title="Status" items={highlights.statuses} empty="No status listed" />
+              {sections.map((section) => (
+                <section key={section.title} className="record-block">
+                  <h3>
+                    {section.title}
+                    <span>{section.rows.length}</span>
+                  </h3>
+                  {section.rows.length > 0 && (
+                    <table className="meta-table">
+                      <tbody>
+                        {section.rows.map((row, index) => (
+                          <tr key={`${row.label}-${index}`}>
+                            <td>{row.label}</td>
+                            <td>{row.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {section.raw && (
+                    <details className="raw-fold">
+                      <summary>Raw WHOIS text</summary>
+                      <pre className="whois-block">{section.raw}</pre>
+                    </details>
+                  )}
+                </section>
+              ))}
             </div>
           ) : (
-            !error && <p className="lede">Registrar, dates, and nameservers appear here.</p>
+            !error && <p className="lede">Registrar, dates, name servers, and the rest of the record appear here.</p>
           )}
         </section>
       </div>
     </>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="stat">
+      <span>{label}</span>
+      <b className="wrap">{value || "—"}</b>
+    </div>
   );
 }
 
@@ -118,6 +124,7 @@ type DnsResult = {
   mx: { exchange: string; priority: number }[];
   ns: string[];
   txt: string[];
+  addresses?: { address: string; family: number }[];
 };
 
 export function DnsTool() {
@@ -154,7 +161,7 @@ export function DnsTool() {
         <h1>DNS lookup</h1>
         <p className="lede">Resolves records with the container’s DNS, not a public web API.</p>
       </header>
-      <div className="workspace">
+      <div className="workspace report">
         <form className="panel" onSubmit={onSubmit}>
           <label className="field">
             <span>Hostname</span>
@@ -167,11 +174,22 @@ export function DnsTool() {
           </div>
         </form>
         <section className="panel">
-          {error && <p className="lede">{error}</p>}
+          {error && <p className="lede" role="alert">{error}</p>}
           {result ? (
-            <pre className="whois-block">{JSON.stringify(result, null, 2)}</pre>
+            <div className="stack">
+              <h2>{result.domain}</h2>
+              <RecordList title="A" items={result.a} empty="No A records" />
+              <RecordList title="AAAA" items={result.aaaa} empty="No AAAA records" />
+              <RecordList title="CNAME" items={result.cname} empty="No CNAME" />
+              <RecordList title="MX" items={result.mx.map((item) => `${item.priority}  ${item.exchange}`)} empty="No MX records" />
+              <RecordList title="NS" items={result.ns} empty="No name servers" />
+              <RecordList title="TXT" items={result.txt} empty="No TXT records" />
+              {result.addresses && result.addresses.length > 0 && (
+                <RecordList title="Resolver" items={result.addresses.map((item) => item.address)} />
+              )}
+            </div>
           ) : (
-            <p className="lede">A, AAAA, MX, NS, CNAME, and TXT land here.</p>
+            !error && <p className="lede">A, AAAA, MX, NS, CNAME, and TXT land here.</p>
           )}
         </section>
       </div>

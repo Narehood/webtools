@@ -30,19 +30,78 @@ function describe(values: number[], all: number, unit: string, names?: string[])
   return `${unit}s ${label}`;
 }
 
-export function explainCron(expression: string) {
+export type ParsedCron = {
+  minute: number[];
+  hour: number[];
+  day: number[];
+  month: number[];
+  weekday: number[];
+  dayField: string;
+  weekdayField: string;
+};
+
+export function parseCron(expression: string): ParsedCron {
   if (expression.length > 512) throw new Error("Cron expression is too long");
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) throw new Error("Use a five-field cron: minute hour day month weekday");
-  const minute = expand(parts[0], 0, 59);
-  const hour = expand(parts[1], 0, 23);
-  const day = expand(parts[2], 1, 31);
-  const month = expand(parts[3], 1, 12, MONTHS);
-  const weekday = [...new Set(expand(parts[4], 0, 7, WEEKDAYS).map((value) => value % 7))].sort((a, b) => a - b);
-  const dayText = describe(day, 31, "day of the month");
-  const weekdayText = describe(weekday, 7, "day of the week", WEEKDAYS);
+  return {
+    minute: expand(parts[0], 0, 59),
+    hour: expand(parts[1], 0, 23),
+    day: expand(parts[2], 1, 31),
+    month: expand(parts[3], 1, 12, MONTHS),
+    weekday: [...new Set(expand(parts[4], 0, 7, WEEKDAYS).map((value) => value % 7))].sort((a, b) => a - b),
+    dayField: parts[2],
+    weekdayField: parts[4],
+  };
+}
+
+export function explainCron(expression: string) {
+  const parsed = parseCron(expression);
+  const dayText = describe(parsed.day, 31, "day of the month");
+  const weekdayText = describe(parsed.weekday, 7, "day of the week", WEEKDAYS);
   // Traditional five-field cron uses OR when both day fields are restricted.
-  const days = parts[2] === "*" ? weekdayText : parts[4] === "*" ? dayText
-    : `${dayText} ${parts[2].startsWith("*") || parts[4].startsWith("*") ? "and" : "or"} ${weekdayText}`;
-  return `At ${describe(minute, 60, "minute")}, during ${describe(hour, 24, "hour")}, on ${days}, in ${describe(month, 12, "month", ["", ...MONTHS])}.`;
+  const days = parsed.dayField === "*" ? weekdayText : parsed.weekdayField === "*" ? dayText
+    : `${dayText} ${parsed.dayField.startsWith("*") || parsed.weekdayField.startsWith("*") ? "and" : "or"} ${weekdayText}`;
+  return `At ${describe(parsed.minute, 60, "minute")}, during ${describe(parsed.hour, 24, "hour")}, on ${days}, in ${describe(parsed.month, 12, "month", ["", ...MONTHS])}.`;
+}
+
+function matchesDay(date: Date, cron: ParsedCron) {
+  const dayOfMonth = cron.day.includes(date.getDate());
+  const dayOfWeek = cron.weekday.includes(date.getDay());
+  if (cron.dayField === "*") return dayOfWeek;
+  if (cron.weekdayField === "*") return dayOfMonth;
+  if (cron.dayField.startsWith("*") || cron.weekdayField.startsWith("*")) return dayOfMonth && dayOfWeek;
+  return dayOfMonth || dayOfWeek;
+}
+
+export function nextCronRuns(expression: string, from: Date, count = 5) {
+  if (!Number.isFinite(from.getTime())) throw new Error("Invalid start time");
+  const wanted = Math.min(12, Math.max(1, Math.round(count)));
+  const cron = parseCron(expression);
+  const start = new Date(from.getTime());
+  start.setSeconds(0, 0);
+  const origin = start.getTime() + 60_000;
+  const results: Date[] = [];
+  const originDate = new Date(origin);
+  for (let dayOffset = 0; dayOffset < 366 * 8 && results.length < wanted; dayOffset += 1) {
+    const day = new Date(originDate.getFullYear(), originDate.getMonth(), originDate.getDate() + dayOffset);
+    if (!cron.month.includes(day.getMonth() + 1) || !matchesDay(day, cron)) continue;
+    for (const hour of cron.hour) {
+      for (const minute of cron.minute) {
+        const candidate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute, 0, 0);
+        if (
+          candidate.getFullYear() !== day.getFullYear()
+          || candidate.getMonth() !== day.getMonth()
+          || candidate.getDate() !== day.getDate()
+          || candidate.getHours() !== hour
+          || candidate.getMinutes() !== minute
+          || candidate.getTime() < origin
+        ) continue;
+        results.push(candidate);
+        if (results.length >= wanted) return results;
+      }
+    }
+  }
+  if (results.length === 0) throw new Error("No runs in the next 8 years");
+  return results;
 }
