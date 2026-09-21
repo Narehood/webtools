@@ -7,7 +7,7 @@ import { usePrefs } from "../prefs/Prefs";
 
 export function Home() {
   const { query } = useOutletContext<{ query: string }>();
-  const { favorites, recent } = usePrefs();
+  const { favorites, recent, recentEnabled } = usePrefs();
   const [category, setCategory] = useState<ToolCategory | "all">("all");
   const q = query.trim().toLowerCase();
   const matches = (tool: Tool) => {
@@ -17,10 +17,12 @@ export function Home() {
   const visible = tools.filter(matches);
   const pinned = tools.filter((tool) => tool.featured && matches(tool));
   const favoriteTools = favorites.map((slug) => tools.find((tool) => tool.slug === slug)).filter((tool): tool is Tool => Boolean(tool)).filter(matches);
-  const recentTools = recent
-    .map((slug) => tools.find((tool) => tool.slug === slug))
-    .filter((tool): tool is Tool => Boolean(tool))
-    .filter((tool) => matches(tool) && !favoriteTools.some((favorite) => favorite.slug === tool.slug));
+  const recentTools = recentEnabled
+    ? recent
+      .map((slug) => tools.find((tool) => tool.slug === slug))
+      .filter((tool): tool is Tool => Boolean(tool))
+      .filter((tool) => matches(tool) && !favoriteTools.some((favorite) => favorite.slug === tool.slug))
+    : [];
   const searching = q.length > 0;
   const categoryLabel = categories.find((item) => item.id === category)?.label ?? "All tools";
 

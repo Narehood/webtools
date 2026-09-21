@@ -9,7 +9,7 @@ const themes: { id: ThemeMode; label: string }[] = [
 ];
 
 export function Settings() {
-  const { theme, setTheme, accent, setAccent, favorites, toggleFavorite, clearFavorites, recent, clearRecent } = usePrefs();
+  const { theme, setTheme, accent, setAccent, favorites, toggleFavorite, clearFavorites, recentEnabled, setRecentEnabled, recent, clearRecent } = usePrefs();
   const saved = favorites.map((slug) => getTool(slug)).filter((tool) => tool != null);
   const opened = recent.map((slug) => getTool(slug)).filter((tool) => tool != null);
 
@@ -68,7 +68,7 @@ export function Settings() {
       <section className="panel stack">
         <h2>Favorites</h2>
         <p className="lede">
-          Star a tool on the home page or on its own page. Favorites stay at the top of the sidebar and the home page.
+          Hover a tool in the sidebar and click the star, or star it on the home page or its own page. Favorites stay at the top of the sidebar and the home page.
         </p>
         {saved.length === 0 ? (
           <p className="record-empty">No favorites yet.</p>
@@ -93,10 +93,17 @@ export function Settings() {
 
       <section className="panel stack">
         <h2>Recent</h2>
-        <p className="lede">The last few tools you opened, kept in this browser.</p>
-        {opened.length === 0 ? (
-          <p className="record-empty">Nothing opened yet.</p>
-        ) : (
+        <p className="lede">Off until you turn it on. The last few tools you open then show on the home page and in the sidebar.</p>
+        <div className="segment" role="group" aria-label="Recent tools">
+          <button type="button" aria-pressed={!recentEnabled} onClick={() => setRecentEnabled(false)}>
+            Off
+          </button>
+          <button type="button" aria-pressed={recentEnabled} onClick={() => setRecentEnabled(true)}>
+            On
+          </button>
+        </div>
+        {recentEnabled && opened.length === 0 && <p className="record-empty">Nothing opened yet.</p>}
+        {recentEnabled && opened.length > 0 && (
           <ul className="favorite-list">
             {opened.map((tool) => (
               <li key={tool.slug}>
@@ -105,7 +112,7 @@ export function Settings() {
             ))}
           </ul>
         )}
-        {opened.length > 0 && (
+        {recentEnabled && opened.length > 0 && (
           <button type="button" className="btn ghost" onClick={clearRecent}>
             Clear recent
           </button>

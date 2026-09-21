@@ -133,6 +133,36 @@ img { max-width: 100%; display: block; }
   padding: 14px 10px 6px;
 }
 .nav-list { display: flex; flex-direction: column; gap: 1px; }
+.nav-row { position: relative; }
+.nav-row .nav-tool { padding-right: 36px; }
+.nav-row .fav-btn {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border-color: transparent;
+  background: var(--bg-sider);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-row:hover .fav-btn,
+.nav-row:focus-within .fav-btn {
+  opacity: 1;
+  pointer-events: auto;
+  background: var(--bg-hover);
+}
+.nav-row:has(.active):hover .fav-btn,
+.nav-row:has(.active):focus-within .fav-btn {
+  background: var(--accent-dim);
+}
+@media (hover: none) {
+  .nav-row .fav-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .nav-tool {
   display: flex;
   align-items: center;
