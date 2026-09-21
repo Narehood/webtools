@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./layout/Shell";
 import { Home } from "./pages/Home";
+import { Settings } from "./pages/Settings";
 const BackgroundTool = lazy(() => import("./pages/tools/BackgroundTool").then((module) => ({ default: module.BackgroundTool })));
 const CompressTool = lazy(() => import("./pages/tools/ConvertTool").then((module) => ({ default: module.CompressTool })));
 const ConvertTool = lazy(() => import("./pages/tools/ConvertTool").then((module) => ({ default: module.ConvertTool })));
@@ -40,6 +41,19 @@ const TotpTool = lazy(() => import("./pages/tools/HomelabTools").then((module) =
 const WifiQrTool = lazy(() => import("./pages/tools/HomelabTools").then((module) => ({ default: module.WifiQrTool })));
 const UnitsTool = lazy(() => import("./pages/tools/UnitsTool").then((module) => ({ default: module.UnitsTool })));
 const BillableHoursTool = lazy(() => import("./pages/tools/BillableHoursTool").then((module) => ({ default: module.BillableHoursTool })));
+const CountTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.CountTool })));
+const BasesTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.BasesTool })));
+const EncodeTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.EncodeTool })));
+const LoremTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.LoremTool })));
+const LinesTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.LinesTool })));
+const PercentTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.PercentTool })));
+const AspectTool = lazy(() => import("./pages/tools/ExtraTools").then((module) => ({ default: module.AspectTool })));
+const ZonesTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.ZonesTool })));
+const ColorConvertTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.ColorConvertTool })));
+const MarkdownTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.MarkdownTool })));
+const PassphraseTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.PassphraseTool })));
+const HmacTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.HmacTool })));
+const SiteFilesTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.SiteFilesTool })));
 
 export default function App() {
   return (
@@ -59,6 +73,7 @@ export default function App() {
           <Route path="/dns" element={<DnsTool />} />
           <Route path="/headers" element={<HeadersTool />} />
           <Route path="/mail" element={<MailTool />} />
+          <Route path="/site-files" element={<SiteFilesTool />} />
           <Route path="/port" element={<PortTool />} />
           <Route path="/egress" element={<EgressTool />} />
           <Route path="/ptr" element={<PtrTool />} />
@@ -78,11 +93,24 @@ export default function App() {
           <Route path="/units" element={<UnitsTool />} />
           <Route path="/billable-hours" element={<BillableHoursTool />} />
           <Route path="/color" element={<ColorTool />} />
+          <Route path="/count" element={<CountTool />} />
+          <Route path="/bases" element={<BasesTool />} />
+          <Route path="/encode" element={<EncodeTool />} />
+          <Route path="/lorem" element={<LoremTool />} />
+          <Route path="/lines" element={<LinesTool />} />
+          <Route path="/percent" element={<PercentTool />} />
+          <Route path="/aspect" element={<AspectTool />} />
+          <Route path="/zones" element={<ZonesTool />} />
+          <Route path="/color-convert" element={<ColorConvertTool />} />
+          <Route path="/markdown" element={<MarkdownTool />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/hash" element={<HashTool />} />
           <Route path="/checksum" element={<ChecksumTool />} />
           <Route path="/jwt" element={<JwtTool />} />
           <Route path="/base64" element={<Base64Tool />} />
           <Route path="/password" element={<PasswordTool />} />
+          <Route path="/passphrase" element={<PassphraseTool />} />
+          <Route path="/hmac" element={<HmacTool />} />
           <Route path="/totp" element={<TotpTool />} />
           <Route path="/pem" element={<PemTool />} />
           <Route path="*" element={<Navigate to="/" replace />} />

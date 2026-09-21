@@ -84,8 +84,8 @@ Hashing runs locally on both HTTP and HTTPS. Copy buttons use a fallback on LAN 
 
 | Where it runs | What |
 | --- | --- |
-| **This browser** | Images, EXIF, hashes, JWT decode, text transforms, QR, URLs |
-| **This server** | Site status, SSL, WHOIS, DNS, HTTP headers, mail auth, port check, egress IP, reverse DNS |
+| **This browser** | Images, EXIF, hashes, JWT decode, text transforms, QR, URLs, theme, favorites |
+| **This server** | Site status, SSL, WHOIS, DNS, HTTP headers, mail auth, site files, port check, egress IP, reverse DNS |
 
 No accounts. Files you drop are not uploaded to a third party.
 
@@ -124,16 +124,19 @@ HEAD/GET a URL from this machine, then show up/down, status code, latency, and t
 Open a TLS session and read the peer certificate: issuer, subject, expiry, days remaining, protocol, fingerprint.
 
 **WHOIS**  
-Query WHOIS servers from this host for registrar, dates, and nameservers.
+Query WHOIS servers from this host and show registrar, dates, name servers, and status as labeled fields. The original WHOIS text stays folded underneath.
 
 **DNS lookup**  
-Resolve A, AAAA, MX, NS, CNAME, and TXT with the container’s (or machine’s) resolver.
+Resolve A, AAAA, MX, NS, CNAME, and TXT with the container’s (or machine’s) resolver. Each type is listed on its own line.
 
 **Headers & redirects**  
-Follow up to ten hops with `redirect: manual` and show status plus response headers for each hop.
+Follow up to ten hops with `redirect: manual` and show status plus a header table for each hop.
 
 **Mail auth**  
-MX records plus SPF, DMARC, and a handful of common DKIM selectors (`default`, `google`, `selector1`, `k1`, and similar).
+MX records plus SPF, DMARC, and a handful of common DKIM selectors (`default`, `google`, `selector1`, `k1`, and similar), each record on its own line.
+
+**Site files**  
+Fetch `robots.txt`, `/.well-known/security.txt`, and `/security.txt` over HTTPS from this host. Redirects that leave the host are refused.
 
 **Port check**  
 TCP connect from this host to one hostname and one port. Timeout, latency, open or closed. Not a port scan.
@@ -176,7 +179,16 @@ Cryptographically random UUID v4 values, short NanoIDs, and a URL slug from a ti
 Choose Unix seconds, Unix milliseconds, or an ISO string explicitly, then convert to local time and back. Negative epochs are supported. “Use now” fills the selected format.
 
 **Cron explainer**  
-Five-field cron (`minute hour day month weekday`) turned into a plain-English description.
+Five-field cron (`minute hour day month weekday`) turned into a plain-English description, plus the next five runs in local time. When both the day-of-month and weekday are restricted, a run matches either field.
+
+**Time zones**  
+Take a local date and time and show it in common zones. A custom IANA name or a fixed offset such as `UTC-5` can be added.
+
+**Color converter**  
+One color as hex, RGB, and HSL, with a picker.
+
+**Markdown preview**  
+Headings, lists, emphasis, fenced code, and `http`, `https`, or `mailto` links. Rendered in this tab. HTML in the source is shown as text.
 
 **QR code**  
 Draw a scannable SVG in the browser. Download the SVG. No remote renderer.
@@ -192,6 +204,27 @@ Length, area, volume, mass, temperature, speed, time, digital storage, energy, p
 
 **Color contrast**  
 WCAG 2 contrast for a foreground / background pair, with AA / AAA / fail.
+
+**Text counter**  
+Characters, words, lines, paragraphs, sentences, and a reading time at about 200 words a minute.
+
+**Number bases**  
+Binary, octal, decimal, and hexadecimal. Prefixes `0b`, `0o`, and `0x` override the selected base.
+
+**Encode & decode**  
+URL encoding and HTML entities, both directions, in this tab.
+
+**Lorem ipsum**  
+Placeholder paragraphs. Choose how many paragraphs and how many sentences in each.
+
+**Line tools**  
+Trim, unique, sort, reverse, and number lines, in that order.
+
+**Percentages**  
+What is X% of Y, what percent one number is of another, and the percent change between two values.
+
+**Aspect ratio**  
+Simplify a width and height, then scale either side and keep the ratio.
 
 **Billable hours**
 
@@ -216,6 +249,12 @@ Encode or decode UTF-8 text with the browser codec.
 **Password generator**  
 Cryptographically random strings with length and optional symbols.
 
+**Passphrase**  
+Three to twelve words from a built-in list, joined by a hyphen, space, or period. Entropy is shown next to the result.
+
+**HMAC**  
+HMAC-SHA-256, SHA-384, or SHA-512 of a message and secret. Both stay in this tab. The digest is hexadecimal.
+
 **TOTP & htpasswd**  
 Six-digit authenticator codes from a Base32 secret, plus a bcrypt `user:hash` line for basic auth. Secrets stay in this tab.
 
@@ -223,6 +262,10 @@ Six-digit authenticator codes from a Base32 secret, plus a bcrypt `user:hash` li
 Decode PEM certificates, CSRs, and OpenSSH public keys (subject, SAN, expiry, fingerprints). Private keys are detected and not decoded or uploaded.
 
 ---
+
+## Settings
+
+Open **Settings** from the sidebar or the header. Light, dark, and system appearance, plus the accent color, are saved in this browser. Star a tool on its card or on the tool page to pin it under Favorites on the home page and at the top of the sidebar. Favorites can also be removed from Settings. The last few tools you open appear under Recent. Press `/` to focus search. Category chips on the home page filter the catalog.
 
 ## Notes
 
