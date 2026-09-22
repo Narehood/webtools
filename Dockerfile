@@ -33,7 +33,10 @@ COPY --from=build --chown=node:node /app/server ./server
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./
 
-ARG VERSION=0.0.0
+# VERSION must be the package.json version. There is no default, so a local
+# build cannot record 0.0.0 when the arg is forgotten.
+ARG VERSION
+RUN node -e "const version=JSON.parse(require('fs').readFileSync('./package.json','utf8')).version; const stamped=process.env.VERSION||''; if(!/^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$/.test(version)||stamped!==version){console.error('VERSION build-arg ('+(stamped||'missing')+') must match package.json ('+version+')'); process.exit(1)}"
 LABEL org.opencontainers.image.version="${VERSION}"
 
 USER node
