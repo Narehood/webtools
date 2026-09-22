@@ -33,6 +33,9 @@ COPY --from=build --chown=node:node /app/server ./server
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./
 
+ARG VERSION=0.0.0
+LABEL org.opencontainers.image.version="${VERSION}"
+
 USER node
 EXPOSE 8080
 

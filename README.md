@@ -45,7 +45,7 @@ Optional environment variables in the stack UI (leave blank for defaults):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `WEBTOOLS_TAG` | `latest` | Image tag |
+| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, or a package version such as `0.1.0` |
 | `WEBTOOLS_PORT` | `8080` | Host port |
 | `WEBTOOLS_BIND` | `0.0.0.0` | Set `127.0.0.1` if only a tunnel should reach it |
 
@@ -65,7 +65,7 @@ docker build -t ghcr.io/narehood/webtools:latest .
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 24 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. Published tags are `latest` and the `version` in `package.json` (currently `0.1.0`). Bump that version to publish a new pinned tag. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ### Local development
 

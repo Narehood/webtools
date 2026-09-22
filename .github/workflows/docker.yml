@@ -33,6 +33,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Package version
+        id: package
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "package.json version must look like 0.1.0, got: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Image tags
         id: meta
         uses: docker/metadata-action@v6
@@ -40,9 +50,11 @@ jobs:
           images: ghcr.io/narehood/webtools
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=sha-
+            type=raw,value=${{ steps.package.outputs.version }}
             type=ref,event=tag
             type=semver,pattern={{version}}
+          labels: |
+            org.opencontainers.image.version=${{ steps.package.outputs.version }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -51,6 +63,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.package.outputs.version }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
