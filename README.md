@@ -24,7 +24,7 @@ That example pulls `ghcr.io/narehood/webtools:latest`. Bind to `127.0.0.1:8080` 
 From this repo, build the image yourself:
 
 ```bash
-docker compose up --build -d
+WEBTOOLS_VERSION="$(node -p "require('./package.json').version")" docker compose up --build -d
 ```
 
 ### Portainer
@@ -45,7 +45,7 @@ Optional environment variables in the stack UI (leave blank for defaults):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `WEBTOOLS_TAG` | `latest` | Image tag |
+| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.1.0`, or a `sha-` tag for one build |
 | `WEBTOOLS_PORT` | `8080` | Host port |
 | `WEBTOOLS_BIND` | `0.0.0.0` | Set `127.0.0.1` if only a tunnel should reach it |
 
@@ -61,11 +61,11 @@ docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/nare
 Build it yourself instead of pulling:
 
 ```bash
-docker build -t ghcr.io/narehood/webtools:latest .
+docker build --build-arg VERSION="$(node -p "require('./package.json').version")" -t ghcr.io/narehood/webtools:latest .
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 24 on Alpine. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The `package.json` version (currently `0.1.0`) is published once from `main`, or from a matching `v0.1.0` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ### Local development
 

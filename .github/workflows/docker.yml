@@ -33,6 +33,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Package version
+        id: package
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "package.json version must look like 0.1.0, got: $version" >&2
+            exit 1
+          fi
+
+          publish_version=false
+          ref="${GITHUB_REF}"
+          if [[ "$ref" == refs/tags/* ]]; then
+            tag="${ref#refs/tags/}"
+            tag="${tag#v}"
+            if [[ "$tag" != "$version" ]]; then
+              echo "Git tag ${ref} does not match package.json version ${version}" >&2
+              exit 1
+            fi
+            publish_version=true
+          elif [[ "$ref" == "refs/heads/main" && ( "$GITHUB_EVENT_NAME" == "push" || "$GITHUB_EVENT_NAME" == "workflow_dispatch" ) ]]; then
+            publish_version=true
+          fi
+
+          image="ghcr.io/narehood/webtools:${version}"
+          if [[ "$publish_version" == true ]]; then
+            if docker buildx imagetools inspect "$image" >/tmp/inspect.out 2>/tmp/inspect.err; then
+              echo "${image} already exists; leaving that tag in place"
+              publish_version=false
+            else
+              if grep -Eiq 'not found|manifest unknown|name unknown|no such manifest' /tmp/inspect.err; then
+                echo "${image} is not published yet"
+              else
+                cat /tmp/inspect.err >&2
+                echo "Could not check whether ${image} already exists" >&2
+                exit 1
+              fi
+            fi
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish_version=$publish_version" >> "$GITHUB_OUTPUT"
+
       - name: Image tags
         id: meta
         uses: docker/metadata-action@v6
@@ -41,8 +83,11 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
-            type=ref,event=tag
-            type=semver,pattern={{version}}
+            type=raw,value=${{ steps.package.outputs.version }},enable=${{ steps.package.outputs.publish_version == 'true' }}
+            type=ref,event=tag,enable=${{ steps.package.outputs.publish_version == 'true' }}
+            type=semver,pattern={{version}},enable=${{ steps.package.outputs.publish_version == 'true' }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.package.outputs.version }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -51,6 +96,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.package.outputs.version }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
