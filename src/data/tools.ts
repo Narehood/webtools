@@ -52,7 +52,7 @@ export const tools: Tool[] = [
   {
     slug: "resize",
     name: "Resize & crop",
-    blurb: "Scale or crop a raster image before you keep it. Still on-device.",
+    blurb: "Drag a crop on the image, locked or free, then scale it. Still on-device.",
     category: "images",
     local: true,
     tile: "rgba(226,181,122,.16)",
