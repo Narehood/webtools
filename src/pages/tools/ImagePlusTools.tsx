@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { DropZone } from "../../components/DropZone";
+import { CropStage } from "../../components/CropStage";
 import { CopyButton } from "../../components/CopyButton";
 import { useObjectUrl } from "../../hooks/useObjectUrl";
+import { editCrop, fullCrop, type CropBox } from "../../lib/cropGeometry";
 import {
   canvasFromImage,
   downloadBlob,
@@ -16,19 +18,31 @@ import { formatMeta, gpsOf, isDisplayable, pick, readExif } from "../../lib/exif
 export function ResizeTool() {
   const [file, setFile] = useState<File | null>(null);
   const preview = useObjectUrl(file);
+  const [source, setSource] = useState<{ w: number; h: number } | null>(null);
   const [width, setWidth] = useState(800);
   const [height, setHeight] = useState(600);
   const [lock, setLock] = useState(true);
   const [ratio, setRatio] = useState(1);
-  const [cropX, setCropX] = useState(0);
-  const [cropY, setCropY] = useState(0);
-  const [cropW, setCropW] = useState(800);
-  const [cropH, setCropH] = useState(600);
+  const [crop, setCrop] = useState<CropBox>({ x: 0, y: 0, w: 800, h: 600 });
+  const [cropLock, setCropLock] = useState(false);
+  const [cropAspect, setCropAspect] = useState(1);
   const [output, setOutput] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const outputPreview = useObjectUrl(output);
-  useEffect(() => { setOutput(null); }, [width, height, cropX, cropY, cropW, cropH]);
+  const cropRatio = cropLock ? cropAspect : null;
+  const outputEdited = useRef(false);
+  const encodeToken = useRef(0);
+  useEffect(() => {
+    encodeToken.current += 1;
+    setOutput(null);
+  }, [width, height, crop, file]);
+  useEffect(() => {
+    if (outputEdited.current) return;
+    setWidth(crop.w);
+    setHeight(crop.h);
+    setRatio(crop.w / Math.max(1, crop.h));
+  }, [crop.w, crop.h]);
 
   async function takeFile(next: File) {
     setBusy(true);
@@ -38,39 +52,58 @@ export function ResizeTool() {
       const w = image.naturalWidth;
       const h = image.naturalHeight;
       setFile(next);
+      setSource({ w, h });
       setWidth(w);
       setHeight(h);
       setRatio(w / h);
-      setCropX(0);
-      setCropY(0);
-      setCropW(w);
-      setCropH(h);
+      setCrop(fullCrop(w, h));
+      setCropLock(false);
+      setCropAspect(w / h);
+      outputEdited.current = false;
       setOutput(null);
     } finally {
       setBusy(false);
     }
   }
 
+  function changeCrop(patch: Partial<CropBox>) {
+    if (!source) return;
+    setCrop((current) => editCrop(current, patch, source.w, source.h, cropRatio));
+  }
+
+  function selectFullFrame() {
+    if (!source) return;
+    setCrop(fullCrop(source.w, source.h));
+    if (cropLock) setCropAspect(source.w / source.h);
+  }
+
   async function run() {
-    if (!file) return;
+    if (!file || !source) return;
+    const token = encodeToken.current;
+    const shot = crop;
+    const outW = width;
+    const outH = height;
     setBusy(true);
     setError("");
     setOutput(null);
     try {
-      if (![width, height, cropW, cropH].every((value) => Number.isSafeInteger(value) && value > 0)
-        || ![cropX, cropY].every((value) => Number.isSafeInteger(value) && value >= 0)) {
+      if (![outW, outH, shot.w, shot.h].every((value) => Number.isSafeInteger(value) && value > 0)
+        || ![shot.x, shot.y].every((value) => Number.isSafeInteger(value) && value >= 0)) {
         throw new Error("Use positive whole-number sizes and non-negative crop coordinates");
       }
       const image = await loadImage(file);
-      if (cropX + cropW > image.naturalWidth || cropY + cropH > image.naturalHeight) throw new Error("Crop must fit inside the source image");
-      const source = canvasFromImage(image).canvas;
+      if (token !== encodeToken.current) return;
+      if (shot.x + shot.w > image.naturalWidth || shot.y + shot.h > image.naturalHeight) throw new Error("Crop must fit inside the source image");
+      const drawn = canvasFromImage(image).canvas;
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, width);
-      canvas.height = Math.max(1, height);
+      canvas.width = Math.max(1, outW);
+      canvas.height = Math.max(1, outH);
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Canvas is not available");
-      ctx.drawImage(source, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-      setOutput(await encodeCanvas(canvas, "image/png", 0.92));
+      ctx.drawImage(drawn, shot.x, shot.y, shot.w, shot.h, 0, 0, canvas.width, canvas.height);
+      const blob = await encodeCanvas(canvas, "image/png", 0.92);
+      if (token !== encodeToken.current) return;
+      setOutput(blob);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not resize image");
     } finally {
@@ -83,19 +116,85 @@ export function ResizeTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>Resize & crop</h1>
-        <p className="lede">Pick a crop rectangle, set an output size, and encode in this browser.</p>
+        <p className="lede">Drag the box to frame the photo. Keep its ratio, or resize it freely, then set the output size.</p>
       </header>
-      <div className="workspace">
+      <div className="workspace crop-workspace">
         <section className="panel">
           <DropZone disabled={busy} label="Drop an image" hint="PNG, JPEG, or WebP." onFile={takeFile} />
-          <fieldset disabled={busy} className="stack" style={{ marginTop: 16 }}>
+          <p className="lede" style={{ margin: "16px 0 0" }}>
+            {file && source ? `${file.name} · ${formatBytes(file.size)} · ${source.w}×${source.h}` : "Waiting for a file."}
+          </p>
+          {preview && source && (
+            <CropStage
+              src={preview}
+              imageWidth={source.w}
+              imageHeight={source.h}
+              crop={crop}
+              aspect={cropRatio}
+              disabled={busy}
+              onChange={setCrop}
+            />
+          )}
+          {outputPreview && (
+            <>
+              <p className="lede" style={{ margin: "16px 0 8px" }}>Encoded result</p>
+              <div className="preview-frame"><img src={outputPreview} alt="Resized result" /></div>
+            </>
+          )}
+        </section>
+        <section className="panel">
+          <fieldset disabled={busy} className="stack">
+            <div>
+              <span className="field-label">Crop shape</span>
+              <div className="segmented" role="group" aria-label="Crop shape">
+                <button type="button" className={cropLock ? "" : "on"} onClick={() => setCropLock(false)}>Free</button>
+                <button
+                  type="button"
+                  className={cropLock ? "on" : ""}
+                  onClick={() => {
+                    if (!cropLock) setCropAspect(crop.w / Math.max(1, crop.h));
+                    setCropLock(true);
+                  }}
+                >
+                  Lock ratio
+                </button>
+              </div>
+              <p className="hint">
+                {cropLock
+                  ? `Handles keep ${cropAspect.toFixed(2)}:1. Drag inside the box to move it.`
+                  : "Drag a handle to any shape, or drag inside the box to move it."}
+              </p>
+            </div>
             <div className="stat-grid">
               <label className="field">
-                <span>Width</span>
+                <span>Crop X</span>
+                <input type="number" min={0} value={crop.x} onChange={(event) => changeCrop({ x: Number(event.target.value) })} />
+              </label>
+              <label className="field">
+                <span>Crop Y</span>
+                <input type="number" min={0} value={crop.y} onChange={(event) => changeCrop({ y: Number(event.target.value) })} />
+              </label>
+              <label className="field">
+                <span>Crop W</span>
+                <input type="number" min={1} value={crop.w} onChange={(event) => changeCrop({ w: Number(event.target.value) })} />
+              </label>
+              <label className="field">
+                <span>Crop H</span>
+                <input type="number" min={1} value={crop.h} onChange={(event) => changeCrop({ h: Number(event.target.value) })} />
+              </label>
+            </div>
+            <button className="btn ghost" type="button" disabled={!source} onClick={selectFullFrame}>
+              Full frame
+            </button>
+            <div className="stat-grid">
+              <label className="field">
+                <span>Output width</span>
                 <input
                   type="number"
+                  min={1}
                   value={width}
                   onChange={(event) => {
+                    outputEdited.current = true;
                     const next = Number(event.target.value);
                     setWidth(next);
                     if (lock) setHeight(Math.max(1, Math.round(next / ratio)));
@@ -103,11 +202,13 @@ export function ResizeTool() {
                 />
               </label>
               <label className="field">
-                <span>Height</span>
+                <span>Output height</span>
                 <input
                   type="number"
+                  min={1}
                   value={height}
                   onChange={(event) => {
+                    outputEdited.current = true;
                     const next = Number(event.target.value);
                     setHeight(next);
                     if (lock) setWidth(Math.max(1, Math.round(next * ratio)));
@@ -117,45 +218,23 @@ export function ResizeTool() {
             </div>
             <label className="row">
               <input type="checkbox" checked={lock} onChange={(event) => setLock(event.target.checked)} />
-              Lock aspect
+              Lock output aspect
             </label>
-            <div className="stat-grid">
-              <label className="field">
-                <span>Crop X</span>
-                <input type="number" value={cropX} onChange={(event) => setCropX(Number(event.target.value))} />
-              </label>
-              <label className="field">
-                <span>Crop Y</span>
-                <input type="number" value={cropY} onChange={(event) => setCropY(Number(event.target.value))} />
-              </label>
-              <label className="field">
-                <span>Crop W</span>
-                <input type="number" value={cropW} onChange={(event) => setCropW(Number(event.target.value))} />
-              </label>
-              <label className="field">
-                <span>Crop H</span>
-                <input type="number" value={cropH} onChange={(event) => setCropH(Number(event.target.value))} />
-              </label>
-            </div>
             <div className="row">
-              <button className="btn" disabled={!file || busy} onClick={() => void run()}>
+              <button className="btn" type="button" disabled={!file || busy} onClick={() => void run()}>
                 {busy ? "Encoding…" : "Resize"}
               </button>
               <button className="btn ghost" type="button" onClick={() => void sampleProductPng().then(takeFile).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load sample"))}>
                 Use sample
               </button>
               {output && (
-                <button className="btn ghost" onClick={() => downloadBlob(output, "resized.png")}>
+                <button className="btn ghost" type="button" onClick={() => downloadBlob(output, "resized.png")}>
                   Download
                 </button>
               )}
             </div>
           </fieldset>
           {error && <p role="alert" className="lede">{error}</p>}
-        </section>
-        <section className="panel">
-          <p className="lede">{file ? `${file.name} · ${formatBytes(file.size)}` : "Waiting for a file."}</p>
-          <div className="preview-frame">{(outputPreview || preview) && <img src={outputPreview || preview} alt={output ? "Resized result" : "Source"} />}</div>
         </section>
       </div>
     </>
