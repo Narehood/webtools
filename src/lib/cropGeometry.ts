@@ -93,6 +93,41 @@ function resizeFree(
   return finalize(left, top, right - left, bottom - top, imageW, imageH);
 }
 
+function minimumAspect(aspect: number) {
+  let w = MIN;
+  let h = MIN / aspect;
+  if (h < MIN) {
+    h = MIN;
+    w = MIN * aspect;
+  }
+  return { w: Math.max(MIN, w), h: Math.max(MIN, h) };
+}
+
+function snapLockedSize(width: number, height: number, aspect: number, maxW: number, maxH: number) {
+  const limitW = Math.max(MIN, Math.floor(maxW));
+  const limitH = Math.max(MIN, Math.floor(maxH));
+  const center = clamp(Math.round(width), MIN, limitW);
+  let bestW = MIN;
+  let bestH = MIN;
+  let best = Infinity;
+  for (let w = Math.max(MIN, center - 4); w <= Math.min(limitW, center + 4); w++) {
+    const h = clamp(Math.round(w / aspect), MIN, limitH);
+    if (Math.abs(w - h * aspect) > 1) continue;
+    const score = Math.abs(w - width) + Math.abs(h - height);
+    if (score < best) {
+      best = score;
+      bestW = w;
+      bestH = h;
+    }
+  }
+  return { w: bestW, h: bestH };
+}
+
+function placeLocked(x: number, y: number, width: number, height: number, imageW: number, imageH: number, aspect: number) {
+  const size = snapLockedSize(width, height, aspect, imageW, imageH);
+  return finalize(x, y, size.w, size.h, imageW, imageH);
+}
+
 function resizeLockedCorner(
   start: CropBox,
   handle: string,
@@ -108,17 +143,20 @@ function resizeLockedCorner(
   const north = handle.includes("n");
   const anchorX = west ? right0 : start.x;
   const anchorY = north ? bottom0 : start.y;
-  const pointerX = (west ? start.x : right0) + dx;
-  const pointerY = (north ? start.y : bottom0) + dy;
+  const maxW = Math.max(MIN, west ? anchorX : imageW - anchorX);
+  const maxH = Math.max(MIN, north ? anchorY : imageH - anchorY);
+  const min = minimumAspect(aspect);
+  let pointerX = (west ? start.x : right0) + dx;
+  let pointerY = (north ? start.y : bottom0) + dy;
+  if (west) pointerX = clamp(pointerX, anchorX - maxW, anchorX - min.w);
+  else pointerX = clamp(pointerX, anchorX + min.w, anchorX + maxW);
+  if (north) pointerY = clamp(pointerY, anchorY - maxH, anchorY - min.h);
+  else pointerY = clamp(pointerY, anchorY + min.h, anchorY + maxH);
 
   let w = Math.abs(pointerX - anchorX);
   let h = Math.abs(pointerY - anchorY);
-  if (h < 1e-6) h = w / aspect;
   if (w / h > aspect) w = h * aspect;
   else h = w / aspect;
-
-  const maxW = Math.max(MIN, west ? anchorX : imageW - anchorX);
-  const maxH = Math.max(MIN, north ? anchorY : imageH - anchorY);
   if (w > maxW) {
     w = maxW;
     h = w / aspect;
@@ -127,12 +165,9 @@ function resizeLockedCorner(
     h = maxH;
     w = h * aspect;
   }
-  w = Math.max(MIN, Math.min(w, maxW));
-  h = Math.max(MIN, Math.min(h, maxH));
-
   const x = west ? anchorX - w : anchorX;
   const y = north ? anchorY - h : anchorY;
-  return finalize(x, y, w, h, imageW, imageH);
+  return placeLocked(x, y, w, h, imageW, imageH, aspect);
 }
 
 function resizeLockedEdge(
@@ -164,7 +199,7 @@ function resizeLockedEdge(
     let y = cy - h / 2;
     if (y < 0) y = 0;
     if (y + h > imageH) y = Math.max(0, imageH - h);
-    return finalize(x, y, w, h, imageW, imageH);
+    return placeLocked(x, y, w, h, imageW, imageH, aspect);
   }
 
   const maxH = Math.max(MIN, handle === "s" ? imageH - top0 : bottom0);
@@ -179,7 +214,7 @@ function resizeLockedEdge(
   let x = cx - w / 2;
   if (x < 0) x = 0;
   if (x + w > imageW) x = Math.max(0, imageW - w);
-  return finalize(x, y, w, h, imageW, imageH);
+  return placeLocked(x, y, w, h, imageW, imageH, aspect);
 }
 
 export function editCrop(
@@ -193,15 +228,23 @@ export function editCrop(
   const heightChanged = patch.h != null && Number.isFinite(patch.h);
   let w = finite(patch.w, current.w);
   let h = finite(patch.h, current.h);
-  if (lockedAspect(aspect) && widthChanged && !heightChanged) h = Math.round(w / aspect);
-  if (lockedAspect(aspect) && heightChanged && !widthChanged) w = Math.round(h * aspect);
-  w = clamp(Math.round(w), MIN, Math.max(MIN, imageW));
-  h = clamp(Math.round(h), MIN, Math.max(MIN, imageH));
-  if (lockedAspect(aspect) && widthChanged && !heightChanged && Math.round(w / aspect) !== h) {
-    w = clamp(Math.round(h * aspect), MIN, Math.max(MIN, imageW));
-  }
-  if (lockedAspect(aspect) && heightChanged && !widthChanged && Math.round(h * aspect) !== w) {
-    h = clamp(Math.round(w / aspect), MIN, Math.max(MIN, imageH));
+  if (lockedAspect(aspect) && (widthChanged || heightChanged)) {
+    if (widthChanged && !heightChanged) h = w / aspect;
+    if (heightChanged && !widthChanged) w = h * aspect;
+    if (w > imageW) {
+      w = imageW;
+      h = w / aspect;
+    }
+    if (h > imageH) {
+      h = imageH;
+      w = h * aspect;
+    }
+    const size = snapLockedSize(w, h, aspect, imageW, imageH);
+    w = size.w;
+    h = size.h;
+  } else {
+    w = clamp(Math.round(w), MIN, Math.max(MIN, imageW));
+    h = clamp(Math.round(h), MIN, Math.max(MIN, imageH));
   }
   const x = clamp(Math.round(finite(patch.x, current.x)), 0, Math.max(0, imageW - w));
   const y = clamp(Math.round(finite(patch.y, current.y)), 0, Math.max(0, imageH - h));

@@ -20,11 +20,13 @@ type Props = {
   imageHeight: number;
   crop: CropBox;
   aspect: number | null;
+  disabled?: boolean;
   onChange: (crop: CropBox) => void;
 };
 
-export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange }: Props) {
+export function CropStage({ src, imageWidth, imageHeight, crop, aspect, disabled = false, onChange }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
   const stopDrag = useRef<(() => void) | null>(null);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
 
@@ -46,12 +48,14 @@ export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange
   useEffect(() => () => stopDrag.current?.(), []);
 
   function onPointerDown(handle: CropHandle, event: ReactPointerEvent) {
-    if (event.button !== 0 || frame.width < 1) return;
+    if (disabled || event.button !== 0 || frame.width < 1) return;
     event.preventDefault();
     event.stopPropagation();
-    const rect = (event.currentTarget.closest(".crop-stage") as HTMLElement | null)?.getBoundingClientRect();
+    const stage = event.currentTarget.closest(".crop-stage") as HTMLElement | null;
+    const rect = stage?.getBoundingClientRect();
     const width = rect?.width || frame.width;
     const height = rect?.height || frame.height;
+    boxRef.current?.focus();
     const drag = {
       handle,
       origin: crop,
@@ -69,21 +73,24 @@ export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange
       const dy = (pointer.clientY - drag.clientY) * drag.scaleY;
       onChange(applyCropDrag(drag.origin, drag.handle, dx, dy, drag.imageWidth, drag.imageHeight, drag.aspect));
     };
-    const up = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== event.pointerId) return;
+    const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      stage?.removeEventListener("lostpointercapture", up);
       stopDrag.current = null;
     };
     stopDrag.current?.();
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
-    stopDrag.current = () => up(new PointerEvent("pointerup", { pointerId: event.pointerId }));
+    stage?.addEventListener("lostpointercapture", up);
+    if (stage) stage.setPointerCapture(event.pointerId);
+    stopDrag.current = up;
   }
 
-  function onKeyDown(event: KeyboardEvent) {
+  function nudge(handle: CropHandle, event: KeyboardEvent) {
+    if (disabled) return;
     const step = event.shiftKey ? 10 : 1;
     let dx = 0;
     let dy = 0;
@@ -93,7 +100,8 @@ export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange
     else if (event.key === "ArrowDown") dy = step;
     else return;
     event.preventDefault();
-    onChange(applyCropDrag(crop, "move", dx, dy, imageWidth, imageHeight, null));
+    event.stopPropagation();
+    onChange(applyCropDrag(crop, handle, dx, dy, imageWidth, imageHeight, handle === "move" ? null : aspect));
   }
 
   const ready = frame.width > 0 && imageWidth > 0 && imageHeight > 0;
@@ -109,7 +117,7 @@ export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange
   return (
     <div className="crop-wrap" ref={wrapRef}>
       {box && (
-        <div className="crop-stage" style={{ width: frame.width, height: frame.height }}>
+        <div className={`crop-stage${box.width < 72 || box.height < 72 ? " tight" : ""}${disabled ? " is-disabled" : ""}`} style={{ width: frame.width, height: frame.height }}>
           <img src={src} alt="" draggable={false} />
           <div className="crop-dim" style={{ left: 0, top: 0, width: frame.width, height: box.top }} />
           <div
@@ -122,13 +130,15 @@ export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange
             style={{ left: box.left + box.width, top: box.top, width: Math.max(0, frame.width - box.left - box.width), height: box.height }}
           />
           <div
+            ref={boxRef}
             className="crop-box"
             style={box}
             role="group"
-            tabIndex={0}
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
             aria-label={`Crop selection, ${crop.w} by ${crop.h} pixels at ${crop.x}, ${crop.y}. Drag to move. Arrow keys nudge.`}
             onPointerDown={(event) => onPointerDown("move", event)}
-            onKeyDown={onKeyDown}
+            onKeyDown={(event) => nudge("move", event)}
           >
             <div className="crop-grid" />
             <span className="crop-readout">{crop.w}×{crop.h}</span>
@@ -137,8 +147,10 @@ export function CropStage({ src, imageWidth, imageHeight, crop, aspect, onChange
                 key={handle}
                 type="button"
                 className={`crop-handle ${handle}`}
-                aria-label={`Resize from the ${HANDLE_LABEL[handle]}`}
+                aria-label={`Resize from the ${HANDLE_LABEL[handle]}. Arrow keys resize. Shift moves 10 pixels.`}
+                disabled={disabled}
                 onPointerDown={(event) => onPointerDown(handle, event)}
+                onKeyDown={(event) => nudge(handle, event)}
               />
             ))}
           </div>

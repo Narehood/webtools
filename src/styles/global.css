@@ -567,6 +567,11 @@ button.crop-handle.n { left: 50%; top: 4px; transform: translateX(-50%); cursor:
 button.crop-handle.s { left: 50%; bottom: 4px; transform: translateX(-50%); cursor: ns-resize; }
 button.crop-handle.e { right: 4px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
 button.crop-handle.w { left: 4px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.crop-stage.tight button.crop-handle.n,
+.crop-stage.tight button.crop-handle.s,
+.crop-stage.tight button.crop-handle.e,
+.crop-stage.tight button.crop-handle.w { display: none; }
+.crop-stage.is-disabled { pointer-events: none; }
 
 .stat-grid {
   display: grid;

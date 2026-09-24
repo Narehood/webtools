@@ -54,6 +54,22 @@ test("locked resize cannot leave the image", () => {
   assert.ok(capped.y + capped.h <= 100);
 });
 
+test("a locked corner drag stops when it crosses the anchor", () => {
+  assert.deepEqual(
+    applyCropDrag({ x: 100, y: 100, w: 40, h: 20 }, "se", -100, -50, 500, 500, 2),
+    { x: 100, y: 100, w: 2, h: 1 },
+  );
+  const shrunk = applyCropDrag({ x: 0, y: 0, w: 8, h: 2 }, "se", -100, -100, 200, 200, 4);
+  assert.deepEqual(shrunk, { x: 0, y: 0, w: 4, h: 1 });
+  assertAspect(shrunk, 4);
+});
+
+test("a locked edge shrink keeps the ratio after rounding", () => {
+  const shrunk = applyCropDrag({ x: 0, y: 0, w: 40, h: 10 }, "e", -30, 0, 100, 100, 4);
+  assert.deepEqual(shrunk, { x: 0, y: 4, w: 9, h: 2 });
+  assertAspect(shrunk, 4);
+});
+
 test("typed crop values follow the lock and stay in bounds", () => {
   assert.deepEqual(
     editCrop({ x: 10, y: 10, w: 200, h: 100 }, { w: 300 }, 1000, 800, 2),
@@ -66,5 +82,13 @@ test("typed crop values follow the lock and stay in bounds", () => {
   assert.deepEqual(
     editCrop({ x: 10, y: 10, w: 100, h: 50 }, { w: Number.NaN }, 400, 300, null),
     { x: 10, y: 10, w: 100, h: 50 },
+  );
+  assert.deepEqual(
+    editCrop({ x: 0, y: 0, w: 20, h: 10 }, { w: 100 }, 30, 100, 2),
+    { x: 0, y: 0, w: 30, h: 15 },
+  );
+  assert.deepEqual(
+    editCrop({ x: 0, y: 0, w: 40, h: 20 }, { h: 80 }, 100, 30, 2),
+    { x: 0, y: 0, w: 60, h: 30 },
   );
 });
