@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { calculateBillableHours, formatBillingAmount, formatDuration, parseClockTime } from "../src/lib/billing.ts";
+import { calculateBillableHours, calculateTotalHours, formatBillingAmount, formatDuration, parseClockTime } from "../src/lib/billing.ts";
 
 test("billable hours calculates the requested afternoon example from exact minutes", () => {
   const result = calculateBillableHours("1:30PM", "3:10PM", "50");
@@ -51,4 +51,40 @@ test("invalid rates and impossible breaks cannot produce a payable total", () =>
   }
   assert.throws(() => calculateBillableHours("13PM", "2PM", "25"), /Start time/);
   assert.throws(() => calculateBillableHours("1PM", "25:00", "25"), /End time/);
+});
+
+test("total hours accepts decimal hours and totals longer than one day", () => {
+  const result = calculateTotalHours("7.5", "25.50", "30");
+  assert.equal(result.elapsedMinutes, 450);
+  assert.equal(result.breakMinutes, 30);
+  assert.equal(result.billableMinutes, 420);
+  assert.equal(result.totalCents, 17850n);
+  assert.equal(result.nextDay, false);
+  assert.equal(formatDuration(result.billableMinutes), "7h 0m");
+  assert.equal(calculateTotalHours("40", "50").totalCents, 200000n);
+  assert.equal(calculateTotalHours(" .5 ", "50", "").totalCents, 2500n);
+  assert.equal(calculateTotalHours("0", "50").totalCents, 0n);
+  assert.equal(calculateTotalHours("1.", "50", "60").totalCents, 0n);
+});
+
+test("total hours preserves fractions of a minute and rounds only the final pay", () => {
+  assert.equal(calculateTotalHours(".01", "50").totalCents, 50n);
+  assert.equal(calculateTotalHours(".0001", "50").totalCents, 1n);
+  assert.equal(calculateTotalHours(".0001", "49.99").totalCents, 0n);
+  assert.equal(calculateTotalHours("1.3333", "19.99", "10").totalCents, 2332n);
+  assert.equal(formatDuration(calculateTotalHours("1.01", "50").billableMinutes), "1h 0.6m");
+  assert.equal(formatDuration(calculateTotalHours(".3333", "50").billableMinutes), "0h 19.998m");
+});
+
+test("total hours rejects invalid hours, rates, and impossible breaks", () => {
+  for (const hours of ["", "-1", "NaN", "Infinity", "1e3", "7:30", "7.5h", "1.00001", "9999999999999999"]) {
+    assert.throws(() => calculateTotalHours(hours, "50"), /total hours/i, hours);
+  }
+  for (const rate of ["", "-1", "NaN", "1e3", "25.001"]) {
+    assert.throws(() => calculateTotalHours("7.5", rate), /hourly rate/);
+  }
+  for (const unpaidBreak of ["-1", "1.5", "abc", "451", "Infinity", "99999999999999999999"]) {
+    assert.throws(() => calculateTotalHours("7.5", "50", unpaidBreak), /break/i);
+  }
+  assert.throws(() => calculateTotalHours("0.01", "50", "1"), /break/i);
 });

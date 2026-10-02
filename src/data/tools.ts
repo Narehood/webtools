@@ -302,7 +302,7 @@ export const tools: Tool[] = [
   {
     slug: "billable-hours",
     name: "Billable hours",
-    blurb: "Start and end times, unpaid breaks, and an hourly wage into billable time and total pay.",
+    blurb: "Start and end times or total hours, unpaid breaks, and an hourly rate into total pay.",
     category: "text",
     local: true,
     featured: true,
