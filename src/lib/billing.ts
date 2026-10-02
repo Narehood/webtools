@@ -1,6 +1,8 @@
+const MINUTE_SCALE = 10000n;
+
 export function parseClockTime(raw: string): number {
   const value = raw.trim();
-  const twelveHour = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(value);
+  const twelveHour = /^(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)$/i.exec(value);
   if (twelveHour) {
     const hour = Number(twelveHour[1]);
     const minute = Number(twelveHour[2] ?? 0);
@@ -8,7 +10,7 @@ export function parseClockTime(raw: string): number {
       return (hour % 12 + (twelveHour[3].toLowerCase() === "pm" ? 12 : 0)) * 60 + minute;
     }
   } else {
-    const twentyFourHour = /^(\d{1,2}):(\d{2})$/.exec(value);
+    const twentyFourHour = /^(\d{1,2}):(\d{1,2})$/.exec(value);
     if (twentyFourHour) {
       const hour = Number(twentyFourHour[1]);
       const minute = Number(twentyFourHour[2]);
@@ -16,6 +18,14 @@ export function parseClockTime(raw: string): number {
     }
   }
   throw new Error("Use a time such as 1:30PM or 13:30.");
+}
+
+export function clockTimeInput(raw: string, period: "AM" | "PM", timeFormat: "12h" | "24h"): string {
+  const value = raw.trim();
+  const bareClock = /^(\d{1,2}):\d{1,2}$/.exec(value);
+  // Hours 0 and 13–23 are unambiguous 24-hour entries; 1–12 still use the toggle.
+  if (timeFormat === "24h" || (bareClock && (Number(bareClock[1]) === 0 || Number(bareClock[1]) > 12))) return value;
+  return `${value}${period}`;
 }
 
 function parseHourlyRate(raw: string): bigint {
@@ -50,7 +60,8 @@ export function calculateBillableHours(start: string, end: string, hourlyRate: s
   const hourlyRateCents = parseHourlyRate(hourlyRate);
   // Keep money in integer cents and round only after multiplying by exact minutes.
   const totalCents = (BigInt(billableMinutes) * hourlyRateCents + 30n) / 60n;
-  return { elapsedMinutes, breakMinutes, billableMinutes, hourlyRateCents, totalCents, nextDay };
+  const billableMinuteUnits = BigInt(billableMinutes) * MINUTE_SCALE;
+  return { elapsedMinutes, breakMinutes, billableMinutes, billableMinuteUnits, hourlyRateCents, totalCents, nextDay };
 }
 
 export function calculateTotalHours(totalHours: string, hourlyRate: string, unpaidBreak = "0") {
@@ -59,7 +70,7 @@ export function calculateTotalHours(totalHours: string, hourlyRate: string, unpa
     throw new Error("Enter total hours as a nonnegative number with at most four decimal places, such as 7.5.");
   }
   const [whole, fraction = ""] = value.split(".");
-  const scale = 10000n;
+  const scale = MINUTE_SCALE;
   const hourUnits = BigInt(whole || "0") * scale + BigInt(fraction.padEnd(4, "0"));
   const elapsedMinuteUnits = hourUnits * 60n;
   if (!Number.isSafeInteger(Number(elapsedMinuteUnits))) throw new Error("Total hours is too large.");
@@ -71,7 +82,19 @@ export function calculateTotalHours(totalHours: string, hourlyRate: string, unpa
   const divisor = 60n * scale;
   // Preserve decimal hours exactly, including fractions of a minute, until final cent rounding.
   const totalCents = (billableMinuteUnits * hourlyRateCents + divisor / 2n) / divisor;
-  return { elapsedMinutes, breakMinutes, billableMinutes, hourlyRateCents, totalCents, nextDay: false };
+  return { elapsedMinutes, breakMinutes, billableMinutes, billableMinuteUnits, hourlyRateCents, totalCents, nextDay: false };
+}
+
+export function formatBillableDecimalHours(bill: { billableMinuteUnits: bigint; hourlyRateCents: bigint; totalCents: bigint }) {
+  const floor = bill.billableMinuteUnits / 60n;
+  const remainder = bill.billableMinuteUnits % 60n;
+  const nearest = floor + (remainder >= 30n ? 1n : 0n);
+  const alternative = floor + (remainder >= 30n ? 0n : 1n);
+  // Prefer the nearest four-place decimal, then its neighbor, if it reproduces the exact pay.
+  const matching = [nearest, alternative].find((hours) => (hours * bill.hourlyRateCents + MINUTE_SCALE / 2n) / MINUTE_SCALE === bill.totalCents);
+  const hours = matching ?? nearest;
+  const text = `${hours / MINUTE_SCALE}.${(hours % MINUTE_SCALE).toString().padStart(4, "0")}`.replace(/\.?0+$/, "");
+  return { text, exact: hours * 60n === bill.billableMinuteUnits, reproducesPay: matching !== undefined };
 }
 
 export function formatDuration(minutes: number): string {

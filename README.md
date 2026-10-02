@@ -228,7 +228,7 @@ Simplify a width and height, then scale either side and keep the ratio.
 
 **Billable hours**
 
-Enter start and end times with separate AM/PM buttons (or choose 24-hour time), or switch to total hours and enter a decimal such as `7.5` for 7 hours 30 minutes. Total hours supports up to four decimal places and sessions longer than one day. Add an hourly rate and an optional unpaid break in minutes, which is subtracted in either mode. Shows billable hours and total pay, with a copyable summary. Earlier end times count as the next day; matching times mean zero hours. Pay uses exact entered time and rounds only the final total to cents. Switching entry methods keeps your inputs. Everything is calculated in your browser.
+Enter start and end times with separate AM/PM buttons (or choose 24-hour time), or switch to total hours and enter a decimal such as `7.5` for 7 hours 30 minutes. Total hours supports up to four decimal places and sessions longer than one day. Unambiguous 24-hour entries such as `13:30`, `00:30`, and `23:15` also work in the default 12-hour mode and convert when you leave the field. A single minute digit is accepted: `1:5` means `1:05`. Add an hourly rate and an optional unpaid break in minutes, which is subtracted in either mode. Shows billable hours and total pay, with a copyable summary. Earlier end times count as the next day; matching times mean zero hours. Pay uses exact entered time and rounds only the final total to cents. Rounded decimal hours are marked approximate; the summary includes them only when re-entering those hours at the same rate reproduces the total pay. Switching entry methods keeps your inputs. Everything is calculated in your browser.
 
 ---
 
