@@ -21,6 +21,16 @@ export const categories: { id: ToolCategory | "all"; label: string }[] = [
 
 export const tools: Tool[] = [
   {
+    slug: "photo-color",
+    name: "Photo color fix",
+    blurb: "Remove yellow and faded casts from scanned prints and negatives, one photo or a whole batch.",
+    category: "images",
+    local: true,
+    featured: true,
+    tile: "rgba(226,181,122,.16)",
+    tileInk: "#e2b57a",
+  },
+  {
     slug: "background",
     name: "Background remover",
     blurb: "Knock out a flat studio backdrop. The file never leaves this browser.",

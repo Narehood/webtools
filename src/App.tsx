@@ -26,6 +26,7 @@ const RegexTool = lazy(() => import("./pages/tools/DataTools").then((module) => 
 const ExifTool = lazy(() => import("./pages/tools/ImagePlusTools").then((module) => ({ default: module.ExifTool })));
 const ExifViewerTool = lazy(() => import("./pages/tools/ImagePlusTools").then((module) => ({ default: module.ExifViewerTool })));
 const ResizeTool = lazy(() => import("./pages/tools/ImagePlusTools").then((module) => ({ default: module.ResizeTool })));
+const PhotoColorTool = lazy(() => import("./pages/tools/PhotoColorTool").then((module) => ({ default: module.PhotoColorTool })));
 const HeadersTool = lazy(() => import("./pages/tools/NetworkPlusTools").then((module) => ({ default: module.HeadersTool })));
 const MailTool = lazy(() => import("./pages/tools/NetworkPlusTools").then((module) => ({ default: module.MailTool })));
 const SslTool = lazy(() => import("./pages/tools/NetworkPlusTools").then((module) => ({ default: module.SslTool })));
@@ -61,6 +62,7 @@ export default function App() {
       <Routes>
         <Route element={<Shell />}>
           <Route path="/" element={<Home />} />
+          <Route path="/photo-color" element={<PhotoColorTool />} />
           <Route path="/background" element={<BackgroundTool />} />
           <Route path="/convert" element={<ConvertTool />} />
           <Route path="/compress" element={<CompressTool />} />
