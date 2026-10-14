@@ -351,6 +351,8 @@ export function Icon({ name }: { name: string }) {
           <path d="M14 4v4h4M9 13h6M9 16h4" />
         </svg>
       );
+    case "photo-color":
+      return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M12 5v14" /><path d="m3 16 4-4 3 3" /><path d="M15 9h3M15 12h3M15 15h3" /></svg>;
     case "settings":
       return (
         <svg {...common}>
