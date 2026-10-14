@@ -4,6 +4,12 @@ export type RgbColor = { r: number; g: number; b: number };
 
 export type ChannelValues = [red: number, green: number, blue: number];
 
+/** RGBA pixels with their size. ImageData fits. */
+export type PixelImage = { data: Uint8ClampedArray | Uint8Array; width: number; height: number };
+
+/** A spot that should be gray, as a fraction of the width and height, so it can be re-sampled at any resolution. */
+export type NeutralSpot = { x: number; y: number };
+
 export type ColorAnalysis = {
   /** Input level, per channel, that becomes black. */
   low: ChannelValues;
@@ -11,7 +17,7 @@ export type ColorAnalysis = {
   high: ChannelValues;
   /** Midtone exponent, per channel, that turns the photo's near-neutral areas gray. */
   gamma: ChannelValues;
-  /** Pixels that informed the levels. Zero means the analysis is an identity. */
+  /** Pixels that informed the levels, after borders and transparency. Zero means the analysis is an identity. */
   sampled: number;
 };
 
@@ -57,6 +63,18 @@ export type PhotoOutputChoice = "match" | "jpeg" | "png" | "webp";
 
 export type PhotoOutputFormat = { mime: string; ext: string; quality: number };
 
+/** Quality for JPEG and WebP output. High, because these are archival copies of family photos. */
+export const PHOTO_QUALITY = 0.95;
+
+/** A dropped file or folder. Matches the browser's FileSystemEntry, and is easy to fake in tests. */
+export type DroppedEntry = {
+  readonly isFile: boolean;
+  readonly isDirectory: boolean;
+  readonly fullPath: string;
+  file?(success: (file: File) => void, failure?: (error: DOMException) => void): void;
+  createReader?(): { readEntries(success: (entries: DroppedEntry[]) => void, failure?: (error: DOMException) => void): void };
+};
+
 const DEFAULT_CLIP = 0.005;
 const MIN_ALPHA = 128;
 // A channel squeezed into fewer levels than this is widened instead of stretched, so noise is not amplified wildly.
@@ -68,6 +86,31 @@ const NEUTRAL_CHROMA = 0.25;
 // Below this share of near-neutral pixels, the midtones are left alone rather than guessed.
 const MIN_NEUTRAL_SHARE = 0.01;
 const NEUTRAL_PASSES = 4;
+// Film rebates and scanner lids are nearly colorless and near black or white. Even a dark yellowed shadow, such as 38,33,14, carries more color than this.
+const BORDER_CHROMA = 16;
+const BORDER_DARK = 48;
+const BORDER_LIGHT = 208;
+// Neighboring border pixels differ by at most this much per channel, which follows a flat margin without leaking into the photo.
+const BORDER_STEP = 16;
+// A margin is flat. A bright sky or dark foreground along an edge varies more than this (standard deviation of brightness).
+const BORDER_MAX_DEVIATION = 8;
+// A margin runs along at least this share of one side; a dark coat or white shirt touching the edge usually does not.
+const BORDER_MIN_SIDE_SHARE = 0.5;
+// Where a margin meets the photo, scanner smoothing and JPEG chroma blocks blend the two. That ring, as a share of the longer side, is skipped too.
+const BORDER_BLEND_SHARE = 0.01;
+// Radius of a gray-spot sample as a share of the longer side, so the same patch of the photo is averaged at every resolution.
+const SPOT_RADIUS_SHARE = 1 / 400;
+const IMAGE_NAME = /\.(?:png|jpe?g|jfif|webp|gif|bmp|avif|tiff?|heic|heif)$/i;
+const EXTENSION_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  jfif: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  avif: "image/avif",
+};
 // Exponent swing at the slider ends, in stops (powers of two).
 const COLOR_SHIFT_STOPS = 0.6;
 const BRIGHTNESS_STOPS = 0.6;
@@ -80,6 +123,14 @@ function assertRgba(rgba: RgbaPixels) {
   }
   if (rgba.length === 0 || rgba.length % 4 !== 0) {
     throw new Error(`RGBA pixel data length must be a positive multiple of 4; received ${rgba.length}`);
+  }
+}
+
+function assertPixelImage(image: PixelImage) {
+  assertRgba(image?.data);
+  const { width, height } = image;
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height * 4 !== image.data.length) {
+    throw new Error("Width and height must match the pixel data");
   }
 }
 
@@ -101,9 +152,107 @@ function stretch(value: number, low: number, high: number) {
   return clamp((value - low) / (high - low), 0, 1);
 }
 
-/** Film borders and blown highlights are already neutral and would anchor every channel at 0 or 255. */
-function isFlatExtreme(red: number, green: number, blue: number) {
-  return (red <= 3 && green <= 3 && blue <= 3) || (red >= 252 && green >= 252 && blue >= 252);
+function isBorderTone(data: RgbaPixels, index: number) {
+  const highest = Math.max(data[index], data[index + 1], data[index + 2]);
+  const lowest = Math.min(data[index], data[index + 1], data[index + 2]);
+  return data[index + 3] >= MIN_ALPHA && highest - lowest <= BORDER_CHROMA && (highest <= BORDER_DARK || lowest >= BORDER_LIGHT);
+}
+
+function isCloseTone(data: RgbaPixels, a: number, b: number) {
+  return Math.abs(data[a] - data[b]) <= BORDER_STEP
+    && Math.abs(data[a + 1] - data[b + 1]) <= BORDER_STEP
+    && Math.abs(data[a + 2] - data[b + 2]) <= BORDER_STEP;
+}
+
+/**
+ * Marks film rebates and scanner-lid margins: flat, near-black or near-white, nearly colorless regions
+ * that touch the frame edge and run along at least half of one side, plus the thin blended ring where
+ * a margin meets the photo. Their tone says nothing about the photo's cast, and because they can cover
+ * a third of a scan, the clip cannot step past them. A black coat or white shirt inside the frame, or
+ * touching only a short stretch of the edge, is kept.
+ */
+export function findBorder(image: PixelImage): Uint8Array {
+  assertPixelImage(image);
+  const { data, width, height } = image;
+  const border = new Uint8Array(width * height);
+  const seen = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+
+  const flood = (seed: number) => {
+    if (seen[seed] || !isBorderTone(data, seed * 4)) return;
+    seen[seed] = 1;
+    queue[0] = seed;
+    let head = 0;
+    let tail = 1;
+    let top = 0;
+    let bottom = 0;
+    let left = 0;
+    let right = 0;
+    let toneSum = 0;
+    let toneSquares = 0;
+    while (head < tail) {
+      const pixel = queue[head];
+      head += 1;
+      const tone = (data[pixel * 4] + data[pixel * 4 + 1] + data[pixel * 4 + 2]) / 3;
+      toneSum += tone;
+      toneSquares += tone * tone;
+      const x = pixel % width;
+      const y = (pixel - x) / width;
+      if (y === 0) top += 1;
+      if (y === height - 1) bottom += 1;
+      if (x === 0) left += 1;
+      if (x === width - 1) right += 1;
+      const neighbors = [x > 0 ? pixel - 1 : -1, x < width - 1 ? pixel + 1 : -1, y > 0 ? pixel - width : -1, y < height - 1 ? pixel + width : -1];
+      for (const next of neighbors) {
+        if (next < 0 || seen[next] || !isBorderTone(data, next * 4) || !isCloseTone(data, pixel * 4, next * 4)) continue;
+        seen[next] = 1;
+        queue[tail] = next;
+        tail += 1;
+      }
+    }
+    const runsAlongSide = Math.max(top, bottom) >= width * BORDER_MIN_SIDE_SHARE || Math.max(left, right) >= height * BORDER_MIN_SIDE_SHARE;
+    const mean = toneSum / tail;
+    const flat = Math.sqrt(Math.max(0, toneSquares / tail - mean * mean)) <= BORDER_MAX_DEVIATION;
+    if (runsAlongSide && flat) for (let index = 0; index < tail; index += 1) border[queue[index]] = 1;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    flood(x);
+    flood((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y += 1) {
+    flood(y * width);
+    flood(y * width + width - 1);
+  }
+  return blendRing(border, width, height);
+}
+
+/** Grows a border mask outward by the blend ring, breadth first, so each pixel is visited once. */
+function blendRing(border: Uint8Array, width: number, height: number) {
+  const reach = Math.max(2, Math.round(Math.max(width, height) * BORDER_BLEND_SHARE));
+  const distance = new Uint16Array(width * height);
+  const queue = new Int32Array(width * height);
+  let tail = 0;
+  for (let pixel = 0; pixel < border.length; pixel += 1) {
+    if (border[pixel]) {
+      queue[tail] = pixel;
+      tail += 1;
+    }
+  }
+  for (let head = 0; head < tail; head += 1) {
+    const pixel = queue[head];
+    if (distance[pixel] >= reach) continue;
+    const x = pixel % width;
+    const neighbors = [x > 0 ? pixel - 1 : -1, x < width - 1 ? pixel + 1 : -1, pixel >= width ? pixel - width : -1, pixel + width < border.length ? pixel + width : -1];
+    for (const next of neighbors) {
+      if (next < 0 || border[next]) continue;
+      border[next] = 1;
+      distance[next] = distance[pixel] + 1;
+      queue[tail] = next;
+      tail += 1;
+    }
+  }
+  return border;
 }
 
 function lowLevel(histogram: Float64Array, cut: number) {
@@ -157,7 +306,7 @@ function solveGamma(histogram: Float64Array, count: number, low: number, high: n
  * pavement, clouds, white shirts. Averaging the whole frame instead would tint grays whenever grass
  * or sky dominates the shot. Each pass re-selects neutral pixels using the previous pass's balance.
  */
-function neutralGamma(rgba: RgbaPixels, count: number, low: ChannelValues, high: ChannelValues): ChannelValues {
+function neutralGamma(rgba: RgbaPixels, border: Uint8Array, count: number, low: ChannelValues, high: ChannelValues): ChannelValues {
   let gamma: ChannelValues = [1, 1, 1];
   const curves = [new Float64Array(256), new Float64Array(256), new Float64Array(256)];
   for (let pass = 0; pass < NEUTRAL_PASSES; pass += 1) {
@@ -166,12 +315,11 @@ function neutralGamma(rgba: RgbaPixels, count: number, low: ChannelValues, high:
     }
     const weighted = [new Float64Array(256), new Float64Array(256), new Float64Array(256)];
     let total = 0;
-    for (let index = 0; index < rgba.length; index += 4) {
-      if (rgba[index + 3] < MIN_ALPHA) continue;
+    for (let pixel = 0, index = 0; index < rgba.length; pixel += 1, index += 4) {
+      if (rgba[index + 3] < MIN_ALPHA || border[pixel]) continue;
       const red = rgba[index];
       const green = rgba[index + 1];
       const blue = rgba[index + 2];
-      if (isFlatExtreme(red, green, blue)) continue;
       const r = curves[0][red];
       const g = curves[1][green];
       const b = curves[2][blue];
@@ -201,25 +349,26 @@ export function identityAnalysis(): ColorAnalysis {
  * between its own clipped black and white points, then a per-channel midtone exponent turns
  * near-neutral areas gray. A yellowed print, which is short on blue, gets its blue channel
  * stretched and lifted until whites and grays line up again.
+ *
+ * Pass original pixels, or an unsmoothed (nearest-neighbor) sample of them. A smoothed resample
+ * averages grain away, and its clip points would not match the full-resolution file.
  */
-export function analyzeColorCast(rgba: RgbaPixels, options: ColorAnalysisOptions = {}): ColorAnalysis {
-  assertRgba(rgba);
+export function analyzeColorCast(image: PixelImage, options: ColorAnalysisOptions = {}): ColorAnalysis {
+  assertPixelImage(image);
   const clip = options.clip ?? DEFAULT_CLIP;
   if (typeof clip !== "number" || !Number.isFinite(clip) || clip < 0 || clip >= 0.25) {
     throw new Error("clip must be a number from 0 up to 0.25");
   }
 
+  const rgba = image.data;
+  const border = findBorder(image);
   const histograms = [new Float64Array(256), new Float64Array(256), new Float64Array(256)];
   let count = 0;
-  for (let index = 0; index < rgba.length; index += 4) {
-    if (rgba[index + 3] < MIN_ALPHA) continue;
-    const red = rgba[index];
-    const green = rgba[index + 1];
-    const blue = rgba[index + 2];
-    if (isFlatExtreme(red, green, blue)) continue;
-    histograms[0][red] += 1;
-    histograms[1][green] += 1;
-    histograms[2][blue] += 1;
+  for (let pixel = 0, index = 0; index < rgba.length; pixel += 1, index += 4) {
+    if (rgba[index + 3] < MIN_ALPHA || border[pixel]) continue;
+    histograms[0][rgba[index]] += 1;
+    histograms[1][rgba[index + 1]] += 1;
+    histograms[2][rgba[index + 2]] += 1;
     count += 1;
   }
   if (count === 0) return identityAnalysis();
@@ -231,7 +380,7 @@ export function analyzeColorCast(rgba: RgbaPixels, options: ColorAnalysisOptions
     [low[channel], high[channel]] = widen(lowLevel(histograms[channel], cut), highLevel(histograms[channel], cut));
   }
 
-  return { low, high, gamma: neutralGamma(rgba, count, low, high), sampled: count };
+  return { low, high, gamma: neutralGamma(rgba, border, count, low, high), sampled: count };
 }
 
 /**
@@ -323,17 +472,20 @@ export function correctPixels(
   return target;
 }
 
-/** Averages visible pixels in a square around one point, so a single noisy grain does not set the balance. */
-export function averageSample(rgba: RgbaPixels, width: number, height: number, x: number, y: number, radius = 3): RgbColor {
-  assertRgba(rgba);
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height * 4 !== rgba.length) {
-    throw new Error("Width and height must match the pixel data");
+/**
+ * Averages the visible pixels around a spot, so a single grain does not set the balance. The patch
+ * covers the same share of the photo at every resolution, so the preview and the saved file see the
+ * same area.
+ */
+export function sampleSpot(image: PixelImage, spot: NeutralSpot): RgbColor {
+  assertPixelImage(image);
+  if (!spot || ![spot.x, spot.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
+    throw new Error("Spot position must be from 0 to 1");
   }
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isSafeInteger(radius) || radius < 0) {
-    throw new Error("Sample position and radius must be valid numbers");
-  }
-  const centerX = clamp(Math.round(x), 0, width - 1);
-  const centerY = clamp(Math.round(y), 0, height - 1);
+  const { data: rgba, width, height } = image;
+  const radius = Math.max(1, Math.round(Math.max(width, height) * SPOT_RADIUS_SHARE));
+  const centerX = clamp(Math.floor(spot.x * width), 0, width - 1);
+  const centerY = clamp(Math.floor(spot.y * height), 0, height - 1);
   let red = 0;
   let green = 0;
   let blue = 0;
@@ -352,44 +504,121 @@ export function averageSample(rgba: RgbaPixels, width: number, height: number, x
   return { r: Math.round(red / count), g: Math.round(green / count), b: Math.round(blue / count) };
 }
 
-export function photoOutputFormat(sourceType: string, choice: PhotoOutputChoice): PhotoOutputFormat {
-  const jpeg = { mime: "image/jpeg", ext: "jpg", quality: 0.92 };
+/** The analysis to use for one raster: its own gray-spot sample replaces the automatic midtone balance. */
+export function withNeutralSpot(analysis: ColorAnalysis, image: PixelImage, spot: NeutralSpot | null) {
+  return spot ? neutralizeSample(analysis, sampleSpot(image, spot)) : analysis;
+}
+
+function sourceType(source: { type: string; name: string }) {
+  const type = source.type.toLowerCase();
+  if (type) return type;
+  const extension = /\.([a-z0-9]+)$/i.exec(source.name)?.[1].toLowerCase() ?? "";
+  return EXTENSION_TYPES[extension] ?? "";
+}
+
+export function photoOutputFormat(source: { type: string; name: string }, choice: PhotoOutputChoice): PhotoOutputFormat {
+  const jpeg = { mime: "image/jpeg", ext: "jpg", quality: PHOTO_QUALITY };
   const png = { mime: "image/png", ext: "png", quality: 1 };
-  const webp = { mime: "image/webp", ext: "webp", quality: 0.92 };
+  const webp = { mime: "image/webp", ext: "webp", quality: PHOTO_QUALITY };
   if (choice === "jpeg") return jpeg;
   if (choice === "png") return png;
   if (choice === "webp") return webp;
   if (choice !== "match") throw new Error("Choose match, jpeg, png, or webp");
-  const type = sourceType.toLowerCase();
-  // Lossless sources stay lossless; anything the canvas cannot reliably re-encode becomes JPEG.
-  if (type === "image/png" || type === "image/bmp" || type === "image/gif") return png;
+  const type = sourceType(source);
+  if (type === "image/jpeg") return jpeg;
   if (type === "image/webp") return webp;
-  return jpeg;
+  // PNG stays lossless. BMP and GIF have no canvas encoder and AVIF encoding is unreliable, so they become lossless PNG rather than a lossy JPEG.
+  return png;
+}
+
+/** Whether a dropped file is worth trying as a photo. Unsupported image formats such as TIFF still pass, so the user hears why they were skipped. */
+export function looksLikeImage(file: { name: string; type: string }) {
+  return file.type.toLowerCase().startsWith("image/") || IMAGE_NAME.test(file.name);
+}
+
+/** Orders paths the way a person numbers a roll: "Scan 2" before "Scan 10". */
+export function comparePaths(a: string, b: string) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function readEntryFile(entry: DroppedEntry) {
+  return new Promise<File>((resolve, reject) => {
+    if (entry.file) entry.file(resolve, reject);
+    else reject(new Error(`Could not read ${entry.fullPath}`));
+  });
+}
+
+/** Walks dropped files and folders, including subfolders, and returns up to `limit` files sorted by path. */
+export async function collectDroppedFiles(entries: readonly DroppedEntry[], limit: number) {
+  const found: { path: string; file: File }[] = [];
+  const pending = [...entries];
+  while (pending.length > 0 && found.length < limit) {
+    const entry = pending.shift() as DroppedEntry;
+    if (entry.isFile) {
+      found.push({ path: entry.fullPath, file: await readEntryFile(entry) });
+    } else if (entry.isDirectory && entry.createReader) {
+      const reader = entry.createReader();
+      // Browsers return a folder in batches; an empty batch means the end.
+      for (;;) {
+        const batch = await new Promise<DroppedEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+        if (batch.length === 0) break;
+        pending.push(...batch);
+      }
+    }
+  }
+  return found.sort((a, b) => comparePaths(a.path, b.path)).map((entry) => entry.file);
 }
 
 export function correctedFileName(sourceName: string, ext: string) {
   return `${fileStem(sourceName, "photo")}-corrected.${ext}`;
 }
 
-export function uniqueFileNames(names: readonly string[]) {
-  const used = new Set<string>();
-  return names.map((name) => {
-    const dot = name.lastIndexOf(".");
-    const stem = dot > 0 ? name.slice(0, dot) : name;
-    const ext = dot > 0 ? name.slice(dot) : "";
-    let candidate = name;
-    for (let copy = 2; used.has(candidate.toLowerCase()); copy += 1) candidate = `${stem}-${copy}${ext}`;
-    used.add(candidate.toLowerCase());
-    return candidate;
-  });
+/** Claims a case-insensitively unique name, adding -2, -3, and so on before the extension. */
+function claimName(name: string, used: Set<string>) {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let candidate = name;
+  for (let copy = 2; used.has(candidate.toLowerCase()); copy += 1) candidate = `${stem}-${copy}${ext}`;
+  used.add(candidate.toLowerCase());
+  return candidate;
 }
 
-/** Stores already-compressed images without recompressing them. Duplicate names get a numeric suffix. */
-export async function buildPhotoZip(entries: readonly { name: string; data: Uint8Array }[]) {
-  if (entries.length === 0) throw new Error("Add at least one photo to download");
-  const { zipSync } = await import("fflate");
-  const names = uniqueFileNames(entries.map((entry) => entry.name));
-  const files: Record<string, [Uint8Array, { level: 0 }]> = {};
-  entries.forEach((entry, index) => { files[names[index]] = [entry.data, { level: 0 }]; });
-  return zipSync(files);
+export type PhotoZip = { add(name: string, data: Uint8Array): void; finish(): Promise<Blob> };
+
+/**
+ * Builds a ZIP one photo at a time, storing images without recompressing them. Each entry is copied
+ * into a Blob as it is written, so the caller can drop its buffer before rendering the next photo
+ * and the browser can page the archive out of memory.
+ */
+export async function createPhotoZip(): Promise<PhotoZip> {
+  const { Zip, ZipPassThrough } = await import("fflate");
+  const parts: Blob[] = [];
+  const used = new Set<string>();
+  let failure: Error | null = null;
+  let settle: { resolve: (archive: Blob) => void; reject: (error: Error) => void } | null = null;
+  const done = new Promise<Blob>((resolve, reject) => { settle = { resolve, reject }; });
+  const zip = new Zip((error, chunk, final) => {
+    if (error) {
+      failure = error;
+      settle?.reject(error);
+      return;
+    }
+    // fflate hands out views of plain ArrayBuffers; the Blob keeps its own copy.
+    parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));
+    if (final) settle?.resolve(new Blob(parts, { type: "application/zip" }));
+  });
+  return {
+    add(name, data) {
+      if (failure) throw failure;
+      const entry = new ZipPassThrough(claimName(name, used));
+      zip.add(entry);
+      entry.push(data, true);
+    },
+    finish() {
+      if (used.size === 0) return Promise.reject(new Error("Add at least one photo to download"));
+      zip.end();
+      return done;
+    },
+  };
 }

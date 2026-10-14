@@ -1,23 +1,35 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
-import { assertImageDimensions, assertImageFile, fitImageDimensions } from "../../lib/fileImageTools";
+import {
+  IMAGE_HEADER_BYTES,
+  assertImageDimensions,
+  assertImageFile,
+  fitImageDimensions,
+  readImageDimensions,
+} from "../../lib/fileImageTools";
 import { canvasFromImage, downloadBlob, encodeCanvas, formatBytes, loadImage } from "../../lib/image";
 import {
   DEFAULT_ADJUSTMENTS,
+  PHOTO_QUALITY,
   analyzeColorCast,
-  averageSample,
-  buildPhotoZip,
+  collectDroppedFiles,
+  comparePaths,
   correctPixels,
   correctedFileName,
-  neutralizeSample,
+  createPhotoZip,
+  looksLikeImage,
   photoOutputFormat,
+  sampleSpot,
+  withNeutralSpot,
   type ColorAdjustments,
   type ColorAnalysis,
+  type NeutralSpot,
   type PhotoOutputChoice,
-  type RgbColor,
 } from "../../lib/photoColor";
 
 const MAX_PHOTOS = 100;
 const MAX_PHOTO_BYTES = 80 * 1024 * 1024;
+// Stop walking a dropped folder tree after this many files; the batch limit still applies after filtering.
+const MAX_FOLDER_FILES = 1000;
 const ANALYSIS_PIXELS = 1_000_000;
 const ANALYSIS_SIDE = 1600;
 const PREVIEW_PIXELS = 2_400_000;
@@ -34,8 +46,8 @@ type PhotoEntry = {
   /** Small copy of the original pixels for the batch strip. */
   thumb: ImageData;
   adjustments: ColorAdjustments;
-  /** Original color of a spot the user marked as gray, if any. */
-  neutral: RgbColor | null;
+  /** Where the user marked gray, if anywhere. Each raster samples its own pixels there. */
+  neutral: NeutralSpot | null;
 };
 
 type PreviewView = "after" | "split" | "before";
@@ -54,6 +66,15 @@ const VIEWS: { id: PreviewView; label: string }[] = [
   { id: "before", label: "Original" },
 ];
 
+const QUALITY = `${Math.round(PHOTO_QUALITY * 100)}%`;
+
+const OUTPUTS: { id: PhotoOutputChoice; label: string; hint: string }[] = [
+  { id: "match", label: "Match original format", hint: `JPEG and WebP are re-saved at ${QUALITY} quality. PNG stays lossless, and BMP, GIF, and AVIF are saved as lossless PNG.` },
+  { id: "jpeg", label: `JPEG · ${QUALITY} quality`, hint: `Every photo is saved as JPEG at ${QUALITY} quality.` },
+  { id: "png", label: "PNG · lossless", hint: "Every photo is saved as lossless PNG. Files are larger." },
+  { id: "webp", label: `WebP · ${QUALITY} quality`, hint: `Every photo is saved as WebP at ${QUALITY} quality.` },
+];
+
 function messageOf(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
@@ -68,37 +89,70 @@ function signed(value: number) {
   return value > 0 ? `+${value}` : `${value}`;
 }
 
-function drawScaled(image: HTMLImageElement, maxPixels: number, maxSide: number) {
+/** Lets the browser drop a decoded bitmap now, rather than whenever the element is collected. */
+function releaseImage(image: HTMLImageElement) {
+  image.onload = null;
+  image.onerror = null;
+  image.removeAttribute("src");
+}
+
+/** Refuses oversized images from the file header when it can be read, before the browser decodes them. */
+async function decodeImage(file: File) {
+  const declared = readImageDimensions(new Uint8Array(await file.slice(0, IMAGE_HEADER_BYTES).arrayBuffer()));
+  if (declared) assertImageDimensions(declared.width, declared.height);
+  const image = await loadImage(file);
+  try {
+    assertImageDimensions(image.naturalWidth, image.naturalHeight);
+  } catch (error) {
+    releaseImage(image);
+    throw error;
+  }
+  return image;
+}
+
+/**
+ * Draws a reduced copy and returns its pixels. Smoothing gives a clean preview; without it the copy
+ * is a nearest-neighbor sample of original pixels, grain included, which is what the levels need.
+ */
+function drawScaled(image: HTMLImageElement, maxPixels: number, maxSide: number, smooth = true) {
   const size = fitImageDimensions(image.naturalWidth, image.naturalHeight, maxPixels, maxSide);
   const canvas = document.createElement("canvas");
   canvas.width = size.width;
   canvas.height = size.height;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) throw new Error("Canvas is not available");
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  context.drawImage(image, 0, 0, size.width, size.height);
-  return context.getImageData(0, 0, size.width, size.height);
-}
-
-function effectiveAnalysis(photo: PhotoEntry) {
-  return photo.neutral ? neutralizeSample(photo.analysis, photo.neutral) : photo.analysis;
+  try {
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Canvas is not available");
+    context.imageSmoothingEnabled = smooth;
+    if (smooth) context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, size.width, size.height);
+    return context.getImageData(0, 0, size.width, size.height);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 async function renderCorrected(photo: PhotoEntry, choice: PhotoOutputChoice) {
-  const image = await loadImage(photo.file);
-  const { canvas, ctx } = canvasFromImage(image);
+  const image = await decodeImage(photo.file);
+  let canvas: HTMLCanvasElement | null = null;
   try {
-    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    correctPixels(pixels.data, effectiveAnalysis(photo), photo.adjustments, pixels.data);
-    ctx.putImageData(pixels, 0, 0);
-    const format = photoOutputFormat(photo.file.type, choice);
+    const drawn = canvasFromImage(image);
+    canvas = drawn.canvas;
+    releaseImage(image);
+    const pixels = drawn.ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // The gray spot is sampled again from the pixels being saved, not from the preview.
+    correctPixels(pixels.data, withNeutralSpot(photo.analysis, pixels, photo.neutral), photo.adjustments, pixels.data);
+    drawn.ctx.putImageData(pixels, 0, 0);
+    const format = photoOutputFormat(photo.file, choice);
     const blob = await encodeCanvas(canvas, format.mime, format.quality);
     return { blob, name: correctedFileName(photo.file.name, format.ext) };
   } finally {
-    // Release the full-resolution backing store before the next photo in a batch.
-    canvas.width = 0;
-    canvas.height = 0;
+    // Release the full-resolution bitmap and backing store before the next photo in a batch.
+    releaseImage(image);
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }
 }
 
@@ -156,8 +210,13 @@ async function sampleFadedPrint(): Promise<File> {
     data[index + 2] = 8 + data[index + 2] * 0.32;
   }
   ctx.putImageData(frame, 0, 0);
-  const blob = await encodeCanvas(canvas, "image/jpeg", 0.9);
-  return new File([blob], "sample-faded-print.jpg", { type: "image/jpeg" });
+  try {
+    const blob = await encodeCanvas(canvas, "image/jpeg", 0.9);
+    return new File([blob], "sample-faded-print.jpg", { type: "image/jpeg" });
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 function CorrectedThumb({ photo }: { photo: PhotoEntry }) {
@@ -168,14 +227,30 @@ function CorrectedThumb({ photo }: { photo: PhotoEntry }) {
     canvas.width = photo.thumb.width;
     canvas.height = photo.thumb.height;
     const output = new ImageData(photo.thumb.width, photo.thumb.height);
-    correctPixels(photo.thumb.data, effectiveAnalysis(photo), photo.adjustments, output.data);
+    let analysis = photo.analysis;
+    // A spot that is visible in the preview can fall on transparency in this tiny copy; the thumbnail then uses the automatic balance.
+    try { analysis = withNeutralSpot(photo.analysis, photo.thumb, photo.neutral); } catch { /* keep the automatic balance */ }
+    correctPixels(photo.thumb.data, analysis, photo.adjustments, output.data);
     canvas.getContext("2d")?.putImageData(output, 0, 0);
   }, [photo]);
   return <canvas ref={canvasRef} aria-hidden="true" />;
 }
 
+function byPath(a: File, b: File) {
+  return comparePaths(a.webkitRelativePath || a.name, b.webkitRelativePath || b.name);
+}
+
+function swatchColor(pixels: ImageData, spot: NeutralSpot) {
+  try {
+    return sampleSpot(pixels, spot);
+  } catch {
+    return null;
+  }
+}
+
 export function PhotoColorTool() {
   const inputId = useId();
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const beforeRef = useRef<HTMLCanvasElement>(null);
   const afterRef = useRef<HTMLCanvasElement>(null);
   const scratchRef = useRef<ImageData | null>(null);
@@ -194,6 +269,12 @@ export function PhotoColorTool() {
   const selected = selectedIndex >= 0 ? photos[selectedIndex] : null;
   const selectedFile = selected?.file ?? null;
   const previewReady = Boolean(selected && frame && frame.id === selected.id);
+  const neutralColor = previewReady && frame && selected?.neutral ? swatchColor(frame.pixels, selected.neutral) : null;
+
+  useEffect(() => {
+    // React has no prop for the folder picker attribute.
+    folderInputRef.current?.setAttribute("webkitdirectory", "");
+  }, []);
 
   useEffect(() => {
     if (!selectedId || !selectedFile) {
@@ -201,9 +282,13 @@ export function PhotoColorTool() {
       return;
     }
     let cancelled = false;
-    loadImage(selectedFile)
+    decodeImage(selectedFile)
       .then((image) => {
-        if (!cancelled) setFrame({ id: selectedId, pixels: drawScaled(image, PREVIEW_PIXELS, PREVIEW_SIDE) });
+        try {
+          if (!cancelled) setFrame({ id: selectedId, pixels: drawScaled(image, PREVIEW_PIXELS, PREVIEW_SIDE) });
+        } finally {
+          releaseImage(image);
+        }
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(messageOf(caught, "Could not open that photo"));
@@ -233,7 +318,7 @@ export function PhotoColorTool() {
         scratchRef.current = scratch;
       }
       try {
-        correctPixels(frame.pixels.data, effectiveAnalysis(selected), selected.adjustments, scratch.data);
+        correctPixels(frame.pixels.data, withNeutralSpot(selected.analysis, frame.pixels, selected.neutral), selected.adjustments, scratch.data);
         after.getContext("2d")?.putImageData(scratch, 0, 0);
       } catch (caught) {
         setError(messageOf(caught, "Could not correct this photo"));
@@ -249,8 +334,41 @@ export function PhotoColorTool() {
     return () => window.removeEventListener("keydown", onKey);
   }, [picking]);
 
-  async function addFiles(list: FileList | readonly File[]) {
-    const incoming = [...list];
+  /** Filters out files that are not images at all, then adds the rest. Unsupported image formats are reported by `addFiles`. */
+  async function addCandidates(candidates: readonly File[]) {
+    if (busy) return;
+    const images = candidates.filter(looksLikeImage);
+    const ignored = candidates.length - images.length;
+    if (images.length === 0) {
+      setNotice("");
+      setError(ignored > 0 ? `No photos found. Ignored ${ignored} file${ignored === 1 ? "" : "s"} that ${ignored === 1 ? "isn't an image" : "aren't images"}.` : "Nothing to add. Drop image files or a folder of scans.");
+      return;
+    }
+    await addFiles(images, ignored);
+  }
+
+  async function addDropped(entries: FileSystemEntry[], files: File[]) {
+    if (busy) return;
+    if (entries.length === 0) {
+      await addCandidates(files);
+      return;
+    }
+    setError("");
+    setNotice("");
+    setProgress("Reading folder…");
+    let found: File[];
+    try {
+      found = await collectDroppedFiles(entries, MAX_FOLDER_FILES);
+    } catch (caught) {
+      setError(messageOf(caught, "Could not read that folder"));
+      return;
+    } finally {
+      setProgress("");
+    }
+    await addCandidates(found);
+  }
+
+  async function addFiles(incoming: readonly File[], ignored = 0) {
     if (incoming.length === 0 || busy) return;
     setError("");
     setNotice("");
@@ -267,18 +385,22 @@ export function PhotoColorTool() {
         setProgress(`Reading ${index + 1} of ${accepted.length}…`);
         try {
           assertImageFile(file, MAX_PHOTO_BYTES);
-          const image = await loadImage(file);
-          assertImageDimensions(image.naturalWidth, image.naturalHeight);
-          added.push({
-            id: uniqueId(),
-            file,
-            width: image.naturalWidth,
-            height: image.naturalHeight,
-            analysis: analyzeColorCast(drawScaled(image, ANALYSIS_PIXELS, ANALYSIS_SIDE).data),
-            thumb: drawScaled(image, THUMB_PIXELS, THUMB_SIDE),
-            adjustments: { ...DEFAULT_ADJUSTMENTS },
-            neutral: null,
-          });
+          const image = await decodeImage(file);
+          try {
+            added.push({
+              id: uniqueId(),
+              file,
+              width: image.naturalWidth,
+              height: image.naturalHeight,
+              // Unsmoothed, so the clipped black and white points match the full-resolution file.
+              analysis: analyzeColorCast(drawScaled(image, ANALYSIS_PIXELS, ANALYSIS_SIDE, false)),
+              thumb: drawScaled(image, THUMB_PIXELS, THUMB_SIDE),
+              adjustments: { ...DEFAULT_ADJUSTMENTS },
+              neutral: null,
+            });
+          } finally {
+            releaseImage(image);
+          }
         } catch (caught) {
           skipped.push(`${file.name} (${messageOf(caught, "could not be read")})`);
         }
@@ -289,7 +411,8 @@ export function PhotoColorTool() {
     if (added.length > 0) {
       setPhotos((current) => [...current, ...added]);
       if (!selected) setSelectedId(added[0].id);
-      setNotice(`Added ${added.length} photo${added.length === 1 ? "" : "s"}, each auto-corrected. Select one to fine-tune it.`);
+      const ignoredNote = ignored > 0 ? ` Ignored ${ignored} file${ignored === 1 ? "" : "s"} that ${ignored === 1 ? "isn't an image" : "aren't images"}.` : "";
+      setNotice(`Added ${added.length} photo${added.length === 1 ? "" : "s"}, each auto-corrected. Select one to fine-tune it.${ignoredNote}`);
     }
     const problems = [
       skipped.length > 0 ? `Skipped ${skipped.length}: ${skipped.join("; ")}.` : "",
@@ -315,17 +438,14 @@ export function PhotoColorTool() {
   function pickNeutral(event: MouseEvent<HTMLDivElement>) {
     if (!picking || !frame || !selected || frame.id !== selected.id) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const { width, height, data } = frame.pixels;
+    const spot = {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+    };
     try {
-      const sample = averageSample(
-        data,
-        width,
-        height,
-        ((event.clientX - bounds.left) * width) / bounds.width,
-        ((event.clientY - bounds.top) * height) / bounds.height,
-        Math.max(2, Math.round(Math.max(width, height) / 400)),
-      );
-      updateSelected((photo) => ({ ...photo, neutral: sample }));
+      // Sample once here to reject a transparent spot; the preview, thumbnail, and saved file each re-sample their own pixels.
+      sampleSpot(frame.pixels, spot);
+      updateSelected((photo) => ({ ...photo, neutral: spot }));
       setPicking(false);
       setError("");
     } catch (caught) {
@@ -379,17 +499,17 @@ export function PhotoColorTool() {
     setNotice("");
     const batch = photos;
     try {
-      const entries: { name: string; data: Uint8Array }[] = [];
+      const zip = await createPhotoZip();
       for (const [index, photo] of batch.entries()) {
         setProgress(`Correcting ${index + 1} of ${batch.length} at full resolution…`);
         const result = await renderCorrected(photo, output);
-        entries.push({ name: result.name, data: new Uint8Array(await result.blob.arrayBuffer()) });
+        // Each photo goes into the archive before the next is rendered, so only one encoded file is held at a time.
+        zip.add(result.name, new Uint8Array(await result.blob.arrayBuffer()));
       }
-      setProgress("Packing ZIP…");
-      // fflate allocates its output on a plain ArrayBuffer.
-      const zip = (await buildPhotoZip(entries)) as Uint8Array<ArrayBuffer>;
-      downloadBlob(new Blob([zip], { type: "application/zip" }), "corrected-photos.zip");
-      setNotice(`Downloaded ${entries.length} corrected photos · ${formatBytes(zip.byteLength)}`);
+      setProgress("Finishing ZIP…");
+      const archive = await zip.finish();
+      downloadBlob(archive, "corrected-photos.zip");
+      setNotice(`Downloaded ${batch.length} corrected photos · ${formatBytes(archive.size)}`);
     } catch (caught) {
       setError(messageOf(caught, "Could not build the ZIP"));
     } finally {
@@ -399,7 +519,7 @@ export function PhotoColorTool() {
 
   function loadSample() {
     setError("");
-    void sampleFadedPrint().then((file) => addFiles([file])).catch((caught: unknown) => setError(messageOf(caught, "Could not load the sample")));
+    void sampleFadedPrint().then((file) => addCandidates([file])).catch((caught: unknown) => setError(messageOf(caught, "Could not load the sample")));
   }
 
   const aspect = frame ? frame.pixels.width / frame.pixels.height : 1;
@@ -427,7 +547,12 @@ export function PhotoColorTool() {
             onDrop={(event: DragEvent<HTMLLabelElement>) => {
               event.preventDefault();
               event.currentTarget.classList.remove("over");
-              void addFiles(event.dataTransfer.files);
+              // Entries must be read during the drop event; the browser empties the list once the handler returns.
+              const entries = [...event.dataTransfer.items]
+                .filter((item) => item.kind === "file")
+                .map((item) => item.webkitGetAsEntry())
+                .filter((entry): entry is FileSystemEntry => entry !== null);
+              void addDropped(entries, [...event.dataTransfer.files]);
             }}
           >
             <input
@@ -438,15 +563,34 @@ export function PhotoColorTool() {
               multiple
               disabled={busy}
               onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                if (event.target.files) void addFiles(event.target.files);
+                const files = [...(event.target.files ?? [])];
                 event.target.value = "";
+                void addCandidates(files);
               }}
             />
             <div>
-              <strong>{photos.length > 0 ? "Add more photos" : "Drop scanned photos"}</strong>
-              Drop one or dozens. JPEG, PNG, WebP, BMP, or AVIF, up to 80 MB and 40 megapixels each.
+              <strong>{photos.length > 0 ? "Add more photos" : "Drop scanned photos or a folder"}</strong>
+              Drop one photo, dozens, or a whole folder. JPEG, PNG, WebP, BMP, or AVIF, up to 80 MB and 40 megapixels each.
             </div>
           </label>
+          <input
+            ref={folderInputRef}
+            className="hidden-file"
+            type="file"
+            multiple
+            tabIndex={-1}
+            aria-hidden="true"
+            disabled={busy}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              const files = [...(event.target.files ?? [])].sort(byPath);
+              event.target.value = "";
+              void addCandidates(files);
+            }}
+          />
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => folderInputRef.current?.click()}>Choose a folder</button>
+            <span className="hint" style={{ margin: 0 }}>Subfolders are included. Files that aren't images are ignored.</span>
+          </div>
           {progress && <p role="status" className="lede" style={{ margin: "16px 0 0" }}>{progress}</p>}
           {error && <p role="alert" className="lede" style={{ margin: "16px 0 0" }}>{error}</p>}
           {notice && !progress && <p role="status" className="lede" style={{ margin: "16px 0 0" }}>{notice}</p>}
@@ -543,7 +687,7 @@ export function PhotoColorTool() {
                   </button>
                   {selected.neutral && (
                     <>
-                      <span className="photo-swatch" style={{ background: `rgb(${selected.neutral.r}, ${selected.neutral.g}, ${selected.neutral.b})` }} title="Original color of the picked spot" />
+                      {neutralColor && <span className="photo-swatch" style={{ background: `rgb(${neutralColor.r}, ${neutralColor.g}, ${neutralColor.b})` }} title="Original color of the picked spot" />}
                       <button className="btn ghost" type="button" onClick={() => updateSelected((photo) => ({ ...photo, neutral: null }))}>Clear</button>
                     </>
                   )}
@@ -581,10 +725,7 @@ export function PhotoColorTool() {
               <label className="field">
                 <span>Save as</span>
                 <select value={output} onChange={(event) => setOutput(event.target.value as PhotoOutputChoice)}>
-                  <option value="match">Same as original</option>
-                  <option value="jpeg">JPEG · 92% quality</option>
-                  <option value="png">PNG · lossless, larger</option>
-                  <option value="webp">WebP · 92% quality</option>
+                  {OUTPUTS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                 </select>
               </label>
               <div className="row">
@@ -593,7 +734,9 @@ export function PhotoColorTool() {
                   <button className="btn ghost" type="button" onClick={() => void downloadAll()}>Download all {photos.length} as ZIP</button>
                 )}
               </div>
-              <p className="hint" style={{ marginTop: 0 }}>Saved at full resolution. Re-encoding drops camera and scanner metadata.</p>
+              <p className="hint" style={{ marginTop: 0 }}>
+                {OUTPUTS.find((option) => option.id === output)?.hint} Saved at full resolution; camera and scanner metadata is dropped.
+              </p>
               <div className="row">
                 <button className="btn ghost" type="button" onClick={removeSelected}>Remove photo</button>
                 {photos.length > 1 && <button className="btn ghost" type="button" onClick={clearAll}>Clear all</button>}
