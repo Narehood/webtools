@@ -551,20 +551,26 @@ function readEntryFile(entry: DroppedEntry) {
 /** Walks dropped files and folders, including subfolders, and returns up to `limit` files sorted by path. */
 export async function collectDroppedFiles(entries: readonly DroppedEntry[], limit: number) {
   const found: { path: string; file: File }[] = [];
-  const pending = [...entries];
-  while (pending.length > 0 && found.length < limit) {
-    const entry = pending.shift() as DroppedEntry;
+  const visit = async (entry: DroppedEntry): Promise<void> => {
+    if (found.length >= limit) return;
     if (entry.isFile) {
       found.push({ path: entry.fullPath, file: await readEntryFile(entry) });
     } else if (entry.isDirectory && entry.createReader) {
       const reader = entry.createReader();
-      // Browsers return a folder in batches; an empty batch means the end.
-      for (;;) {
+      // Process each batch before reading another, so a large folder is not held in memory past the limit.
+      while (found.length < limit) {
         const batch = await new Promise<DroppedEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
         if (batch.length === 0) break;
-        pending.push(...batch);
+        for (const child of batch) {
+          if (found.length >= limit) break;
+          await visit(child);
+        }
       }
     }
+  };
+  for (const entry of entries) {
+    if (found.length >= limit) break;
+    await visit(entry);
   }
   return found.sort((a, b) => comparePaths(a.path, b.path)).map((entry) => entry.file);
 }

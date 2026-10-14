@@ -369,6 +369,27 @@ test("dropped folders are walked, filtered, and kept in roll order", async () =>
   assert.equal(looksLikeImage({ name: "notes.txt", type: "text/plain" }), false);
 });
 
+test("folder collection stops reading directory batches once the file limit is reached", async () => {
+  let reads = 0;
+  const folder: DroppedEntry = {
+    isFile: false,
+    isDirectory: true,
+    fullPath: "/Roll",
+    createReader: () => ({
+      readEntries: (success) => {
+        reads += 1;
+        assert.equal(reads, 1, "later batches must not be read after reaching the limit");
+        success([
+          fakeFolder("/Roll/nested", [fakeFile("/Roll/nested/Scan 1.jpg"), fakeFile("/Roll/nested/Scan 2.jpg")]),
+          { ...fakeFile("/Roll/Scan 3.jpg"), file: () => assert.fail("files after the limit must not be opened") },
+        ]);
+      },
+    }),
+  };
+  assert.deepEqual((await collectDroppedFiles([folder], 2)).map((file) => file.name), ["Scan 1.jpg", "Scan 2.jpg"]);
+  assert.equal(reads, 1);
+});
+
 test("a ZIP is built one photo at a time with unique names", async () => {
   const zip = await createPhotoZip();
   zip.add("roll-corrected.jpg", new Uint8Array([1, 2, 3]));

@@ -550,8 +550,8 @@ export function PhotoColorTool() {
               // Entries must be read during the drop event; the browser empties the list once the handler returns.
               const entries = [...event.dataTransfer.items]
                 .filter((item) => item.kind === "file")
-                .map((item) => item.webkitGetAsEntry())
-                .filter((entry): entry is FileSystemEntry => entry !== null);
+                .map((item) => item.webkitGetAsEntry?.())
+                .filter((entry): entry is FileSystemEntry => entry != null);
               void addDropped(entries, [...event.dataTransfer.files]);
             }}
           >
