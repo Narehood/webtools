@@ -12,6 +12,7 @@ function decodeBase32(secret: string) {
     bits += value.toString(2).padStart(5, "0");
   }
   const bytes = new Uint8Array(Math.floor(bits.length / 8));
+  if (!bytes.length) throw new Error("The Base32 secret must contain at least one complete byte.");
   for (let i = 0; i < bytes.length; i += 1) {
     bytes[i] = Number.parseInt(bits.slice(i * 8, i * 8 + 8), 2);
   }
@@ -32,4 +33,9 @@ export function totpCode(secret: string, at = Date.now(), step = 30, digits = 6)
   const code = (bin % 10 ** digits).toString().padStart(digits, "0");
   const remaining = step - (Math.floor(at / 1000) % step);
   return { code, remaining, step };
+}
+
+export function verifyTotp(secret: string, code: string, at = Date.now()) {
+  if (!/^\d{6}$/.test(code)) throw new Error("Enter a six-digit authenticator code.");
+  return [-1, 0, 1].some(offset => totpCode(secret, at + offset * 30_000).code === code);
 }

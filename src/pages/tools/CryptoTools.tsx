@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { hashText } from "../../lib/hash";
+import { hashAlgorithms, hashText } from "../../lib/hash";
 import { CopyButton } from "../../components/CopyButton";
+import { generateToken } from "../../lib/identifiers";
 
 export function HashTool() {
   const [input, setInput] = useState("webtools");
@@ -35,9 +36,7 @@ export function HashTool() {
             <label className="field">
               <span>Algorithm</span>
               <select value={algo} onChange={(event) => setAlgo(event.target.value)}>
-                <option>SHA-256</option>
-                <option>SHA-1</option>
-                <option>SHA-512</option>
+                {hashAlgorithms.map(name => <option key={name}>{name}</option>)}
               </select>
             </label>
             <button className="btn" onClick={() => void run()}>
@@ -127,15 +126,15 @@ export function Base64Tool() {
 export function PasswordTool() {
   const [length, setLength] = useState(20);
   const [symbols, setSymbols] = useState(true);
+  const [lower, setLower] = useState(true);
+  const [upper, setUpper] = useState(true);
+  const [digits, setDigits] = useState(true);
+  const [error, setError] = useState("");
   const [password, setPassword] = useState("");
 
   function generate() {
-    const alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    const extra = "!@#$%^&*_-+=?";
-    const alphabet = symbols ? alpha + extra : alpha;
-    const bytes = new Uint32Array(length);
-    crypto.getRandomValues(bytes);
-    setPassword(Array.from(bytes, (n) => alphabet[n % alphabet.length]).join(""));
+    try { setPassword(generateToken(length,lower,upper,digits,symbols)); setError(""); }
+    catch (err) { setPassword(""); setError(err instanceof Error ? err.message : "Could not generate a token."); }
   }
 
   return (
@@ -150,16 +149,18 @@ export function PasswordTool() {
           <div className="stack">
             <label className="field">
               <span>Length · {length}</span>
-              <input className="range" type="range" min={8} max={64} value={length} onChange={(event) => setLength(Number(event.target.value))} />
+              <input className="range" type="range" min={1} max={256} value={length} onChange={(event) => { setLength(Number(event.target.value)); setPassword(""); }} />
             </label>
+            <label className="check"><input type="checkbox" checked={lower} onChange={event => { setLower(event.target.checked); setPassword(""); }} />Lowercase letters</label><label className="check"><input type="checkbox" checked={upper} onChange={event => { setUpper(event.target.checked); setPassword(""); }} />Uppercase letters</label><label className="check"><input type="checkbox" checked={digits} onChange={event => { setDigits(event.target.checked); setPassword(""); }} />Digits</label>
             <label className="row">
-              <input type="checkbox" checked={symbols} onChange={(event) => setSymbols(event.target.checked)} />
+              <input type="checkbox" checked={symbols} onChange={(event) => { setSymbols(event.target.checked); setPassword(""); }} />
               Include symbols
             </label>
             <button className="btn" onClick={generate}>
               Generate
             </button>
             {password && <CopyButton text={password} />}
+            {error && <p className="lede" role="alert">{error}</p>}
           </div>
         </section>
         <section className="panel paper">

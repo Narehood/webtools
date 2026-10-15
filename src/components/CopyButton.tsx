@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { copyText } from "../lib/clipboard";
 
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -24,7 +24,7 @@ export function CopyButton({ text }: { text: string }) {
           }).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not copy. Select and copy the output manually."));
         }}
       >
-        {done ? "Copied" : "Copy"}
+        {done ? "Copied" : label}
       </button>
       {error && <span role="alert" className="lede">{error}</span>}
     </>

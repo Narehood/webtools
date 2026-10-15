@@ -121,6 +121,12 @@ export function RegexTool() {
 
 export function CronTool() {
   const [expression, setExpression] = useState("*/15 9-17 * * 1-5");
+  const [builderFields, setBuilderFields] = useState(["*/15", "9-17", "*", "*", "1-5"]);
+  function changeExpression(next: string) {
+    setExpression(next);
+    const fields = next.trim().split(/\s+/);
+    if (fields.length === 5) setBuilderFields(fields);
+  }
   const result = useMemo(() => {
     try {
       const text = explainCron(expression);
@@ -138,15 +144,18 @@ export function CronTool() {
     <>
       <header className="tool-head">
         <span className="badge local">On device</span>
-        <h1>Cron explainer</h1>
+        <h1>Cron generator & explainer</h1>
         <p className="lede">Five fields: minute, hour, day of month, month, day of week. The next runs use this computer’s local time.</p>
       </header>
       <div className="workspace report">
         <section className="panel">
+            <label className="field" style={{ marginBottom: 12 }}><span>Start from a schedule</span><select defaultValue="" onChange={event => { if (event.target.value) changeExpression(event.target.value); }}><option value="">Custom schedule</option><option value="* * * * *">Every minute</option><option value="*/15 * * * *">Every 15 minutes</option><option value="0 * * * *">Every hour</option><option value="0 0 * * *">Every day at midnight</option><option value="0 9 * * 1-5">Weekdays at 09:00</option><option value="0 0 1 * *">First day of each month</option></select></label>
+            <div className="cron-fields">{["Minute", "Hour", "Day", "Month", "Weekday"].map((label,index) => <label className="field" key={label}><span>{label}</span><input aria-label={`Cron ${label.toLowerCase()}`} value={builderFields[index]} onChange={event => { const fields = [...builderFields]; fields[index] = event.target.value; setBuilderFields(fields); setExpression(fields.join(" ")); }} /></label>)}</div>
           <label className="field">
             <span>Expression</span>
-            <input value={expression} onChange={(event) => setExpression(event.target.value)} spellCheck={false} />
+              <input value={expression} onChange={(event) => changeExpression(event.target.value)} spellCheck={false} />
           </label>
+            <div style={{ marginTop: 12 }}><CopyButton text={expression} /></div>
         </section>
         <section className="panel paper">
           <h3>In English</h3>

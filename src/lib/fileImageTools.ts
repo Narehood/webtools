@@ -110,6 +110,15 @@ export function fitImageDimensions(width: number, height: number, maxPixels: num
   };
 }
 
+export function safeHttpHref(value: string) {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function fileStem(name: string, fallback = "output") {
   const withoutExtension = name.replace(/\.[^.]+$/, "");
   const safe = withoutExtension

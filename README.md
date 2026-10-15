@@ -6,6 +6,27 @@
 
 Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and text work stay in the browser where possible. Status, WHOIS, DNS, certificates, headers, and mail records are checked from this machine — they only leave the host to reach the target you type.
 
+## IT-Tools comparison and additions
+
+The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page across **47 new comparison pages**. Seven accompanying tools—QR reader, PDF merge/split, image color picker, favicon generator, domain health, Docker run to Compose, and date calculator—bring the complete catalog to **106 tools**.
+
+| Area | New tools |
+| --- | --- |
+| Crypto | Bcrypt hash/compare, ULIDs, AES encryption/decryption, BIP39 mnemonics and seeds, RSA PEM keys, password strength analysis |
+| Formats | TOML/JSON/YAML conversion, XML/JSON conversion and XML formatting, YAML formatting, SQL formatting, Base64 files |
+| Text | NATO spelling, UTF-8 binary, Unicode escapes and code points, list conversion, email normalization, string masking, numeronyms, FIGlet banners, searchable emojis |
+| Network | IPv4 representations, exact IPv4 range-to-CIDR covers, MAC vendor lookup, MAC generation, IPv6 ULA prefixes, random ports |
+| Developer | HTTP Basic-auth headers, social meta tags, MIME types, user-agent parsing, HTTP status reference, Outlook SafeLink decoding, Git and regex references, rich-text/HTML editing, timing benchmark comparison |
+| Browser and images | Device information, keyboard events, camera photos/video, SVG placeholders |
+| Calculators | Roman numerals, math expressions, ETA, stopwatch/laps, phone formatting, IBAN validation |
+| Files | PDF signature integrity checker |
+
+Existing tools now include additional hash/HMAC algorithms, UUID versions 1/3/4/5/6/7, token character-group controls, integer bases 2–64, CSS color names, OTP validation, cron generation, QR colors, additional temperature scales, and Markdown-to-HTML export. Existing URLs remain available.
+
+The 47 comparison pages run in the browser. Encryption uses a WebTools AES-256-GCM JSON envelope with PBKDF2-SHA256 (600,000 iterations), so it does not decode other sites' legacy ciphertext formats. RSA, PDF cryptographic verification, and camera access require HTTPS or localhost. PDF verification checks detached CMS signatures against signed byte ranges and reports later unsigned bytes; it does not validate certificate trust, revocation, or timestamp authorities. The HTML preview is sandboxed with scripts and external requests disabled. The benchmark tool compares supplied timing samples.
+
+MAC lookup uses a bundled [IEEE registry](https://standards.ieee.org/products-programs/regauth/) snapshot, including MA-L, MA-M, and MA-S prefixes. Emoji names and characters come from [Unicode's emoji data](https://unicode.org/Public/emoji/latest/emoji-test.txt), under the [Unicode data license](https://www.unicode.org/license.txt). Both datasets load only when needed. Refresh them with `node scripts/update-utility-data.mjs`, then rebuild. Registry updates require internet access; ordinary lookups do not send addresses to a third party.
+
 ## Run
 
 ### Docker Compose
@@ -84,10 +105,12 @@ Hashing runs locally on both HTTP and HTTPS. Copy buttons use a fallback on LAN 
 
 | Where it runs | What |
 | --- | --- |
-| **This browser** | Images, EXIF, hashes, JWT decode, text transforms, QR, URLs, theme, favorites |
-| **This server** | Site status, SSL, WHOIS, DNS, HTTP headers, mail auth, site files, port check, egress IP, reverse DNS |
+| **This browser** | Images, EXIF, PDF pages, QR generation and reading, hashes, JWT decode, text and JSON comparison, URLs, Docker conversion, date calculations, theme, favorites |
+| **This server** | Domain health, site status, SSL, WHOIS, DNS and resolver comparisons, HTTP headers, mail auth, site files, port check, egress IP, reverse DNS |
 
 No accounts. Files you drop are not uploaded to a third party.
+
+The catalog is grouped into **Images**, **Files**, **Network**, **Developer**, **Text**, **Calculators**, and **Crypto**. Existing tool URLs and favorites continue to work after the category changes.
 
 ---
 
@@ -114,11 +137,30 @@ Parse camera, lens, exposure, timestamps, and GPS in this browser. Copy tags as 
 **EXIF stripper**  
 Re-encode the image so capture tags (including GPS) are dropped, then download a clean copy.
 
+**Image color picker**  
+Drop an image to sample an exact pixel or extract a palette. Pick by clicking the image or entering pixel coordinates. Copy the selected color or the full palette. Transparent pixels are excluded from the palette. Images are limited to 20 MB and 40 megapixels.
+
+**Favicon generator**  
+Create 16, 32, 48, 180, 192, and 512 pixel PNGs, a multi-size `favicon.ico`, `site.webmanifest`, and an HTML snippet in a downloadable ZIP. Choose padding and a transparent or solid background. The image is processed in the browser.
+
+---
+
+## Files
+
+**QR reader**  
+Drop or paste a raster image to decode a QR code locally. The decoded content is copyable; HTTP(S) links can be opened explicitly. Supports the browser's raster formats, with a 20 MB file limit. Images containing several QR codes return the first code detected.
+
+**PDF merge & split**  
+Add one or more PDFs, reorder files or individual pages, rotate pages, and download the whole result or just selected pages. Export different selections to split a document. Processing stays in this browser, with limits of 30 MB per file, 75 MB total, and 200 pages. Encrypted PDFs are not supported. Export creates a new page-based document; document-level features such as bookmarks, interactive forms, and digital signatures are not preserved as a complete document.
+
 ---
 
 ## Network
 
 These tools run on the host. The browser asks this app; this app talks to the internet.
+
+**Domain health check**  
+One domain produces a combined report for site status, DNS, TLS, headers, mail authentication, and site files. Each check has its own summary and details, so partial failures remain visible. The report is a diagnostic snapshot, not a blanket security score.
 
 **Site status**  
 HEAD/GET a URL from this machine, then show up/down, status code, latency, and the final URL after redirects.
@@ -131,6 +173,8 @@ Query WHOIS servers from this host and show registrar, dates, name servers, and 
 
 **DNS lookup**  
 Resolve A, AAAA, MX, NS, CNAME, and TXT with the container’s (or machine’s) resolver. Each type is listed on its own line.
+
+The resolver comparison mode checks A and AAAA answers using the local resolver and selected public resolvers (Cloudflare, Google, and Quad9), including TTLs and lookup errors. Queries run from the server; they are not tests from multiple geographic locations. Different answers can be normal for geographic routing or split DNS. Public resolver access requires outbound DNS connectivity.
 
 **Headers & redirects**  
 Follow up to ten hops with `redirect: manual` and show status plus a header table for each hop.
@@ -155,13 +199,19 @@ Network, mask, broadcast, usable range, and whether an IP sits inside the prefix
 
 ---
 
-## Text
+## Text, developer tools & calculators
 
-**URL cleaner**  
-Strip `utm_*`, click IDs (`fbclid`, `gclid`, and related), and other tracking parameters. The rest of the URL is left alone.
+**URL cleaner & inspector**  
+Strip `utm_*`, click IDs (`fbclid`, `gclid`, and related), and other tracking parameters. Switch to the inspector to edit the scheme, credentials, hostname, port, path, fragment, and query parameters, including repeated parameter names. Rebuilding uses the browser URL encoder and may normalize URL spelling.
 
-**Text diff**  
-Line-by-line comparison of two drafts. Green arrived, coral left.
+**Text & JSON diff**  
+Line-by-line comparison of two drafts. Green arrived, coral left. JSON mode reports added, removed, and changed values by path, ignoring whitespace and object-key order while preserving array order. Invalid or oversized JSON is reported before comparison.
+
+**Docker run to Compose**  
+Paste a `docker run` command to create copyable Compose YAML. Supports common environment, port, volume, name, network, restart, user, working directory, entrypoint, and command options. Unsupported flags produce an error; CLI-only behavior is explained separately. Commands and substitutions are never executed, and environment values are never read from this machine.
+
+**Date calculator**  
+Count calendar days, Monday–Friday weekdays, and weekend days between two dates, or add/subtract calendar days or weekdays. The earlier date is included and the later date is excluded unless both-date inclusion is selected. Reversed ranges return negative counts. Holidays are not excluded. Calendar arithmetic avoids daylight-saving time shifts and supports years 0001–9999.
 
 **JSON formatter**  
 Pretty-print or minify, and surface syntax errors before anything ships.
