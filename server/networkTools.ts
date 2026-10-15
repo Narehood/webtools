@@ -350,13 +350,17 @@ function summarizeDns(result: PromiseSettledResult<HealthDnsData>): DomainHealth
   };
 }
 
-function summarizeTls(result: PromiseSettledResult<HealthTlsData>): DomainHealthCheck {
+function summarizeTls(result: PromiseSettledResult<HealthTlsData>, checkedAt: string): DomainHealthCheck {
   if (result.status === "rejected") return rejectedCheck("tls", "TLS certificate", result.reason);
   const value = result.value;
-  const current = value.daysRemaining >= 0;
+  const expiresAt = Date.parse(value.validTo);
+  const current = expiresAt > Date.parse(checkedAt);
   const state: DomainHealthState = value.authorized && current ? "ok" : "notice";
   const trust = value.authorized ? "Trusted" : `Not trusted${value.authorizationError ? `: ${value.authorizationError}` : ""}`;
-  const validity = current ? `${value.daysRemaining} days remaining` : `expired ${Math.abs(value.daysRemaining)} days ago`;
+  const validity = !Number.isFinite(expiresAt) ? "certificate expiry unavailable"
+    : current ? `${value.daysRemaining} days remaining`
+    : value.daysRemaining === 0 ? "expired less than a day ago"
+    : `expired ${Math.abs(value.daysRemaining)} days ago`;
   return {
     id: "tls",
     label: "TLS certificate",
@@ -446,7 +450,7 @@ export function summarizeDomainHealth(
     checks: [
       summarizeStatus(results.status),
       summarizeDns(results.dns),
-      summarizeTls(results.tls),
+      summarizeTls(results.tls, checkedAt),
       summarizeHeaders(results.headers),
       summarizeMail(results.mail),
       summarizeSiteFiles(results.siteFiles),

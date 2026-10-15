@@ -18,6 +18,7 @@ import {
 } from "../../lib/favicon";
 import { downloadBlob, encodeCanvas, formatBytes, loadImage } from "../../lib/image";
 import { contrastTextColor, extractPalette, hexToRgb, rgbToHex, type PaletteColor } from "../../lib/imagePalette";
+import { drawPickerPreview, readOriginalImagePixel } from "../../lib/imagePicker";
 import {
   MAX_PDF_FILE_BYTES,
   MAX_PDF_PAGES,
@@ -334,6 +335,7 @@ export function PdfTool() {
 export function ImagePaletteTool() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const paletteFrameRef = useRef<ImageData | null>(null);
+  const operationRef = useRef(0);
   const [file, setFile] = useState<File | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [colorCount, setColorCount] = useState(8);
@@ -348,7 +350,18 @@ export function ImagePaletteTool() {
     setPalette(extractPalette(frame.data, { colorCount: count, maxSamples: 60_000, minAlpha: 24 }));
   }, []);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    return () => {
+      operationRef.current += 1;
+      paletteFrameRef.current = null;
+      if (canvas) { canvas.width = 1; canvas.height = 1; }
+    };
+  }, []);
+
   async function takeFile(next: File) {
+    const operation = ++operationRef.current;
+    let image: HTMLImageElement | undefined;
     setBusy(true);
     setError("");
     setPalette([]);
@@ -361,40 +374,31 @@ export function ImagePaletteTool() {
     }
     try {
       assertImageFile(next);
-      const image = await loadImage(next);
-      assertImageDimensions(image.naturalWidth, image.naturalHeight);
+      image = await loadImage(next);
+      if (operation !== operationRef.current) return;
       const canvas = canvasRef.current;
       if (!canvas) throw new Error("Canvas is not available");
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) throw new Error("Canvas is not available");
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0);
-      const paletteSize = fitImageDimensions(canvas.width, canvas.height, 1_000_000, 1400);
-      const paletteCanvas = document.createElement("canvas");
-      paletteCanvas.width = paletteSize.width;
-      paletteCanvas.height = paletteSize.height;
-      const paletteContext = paletteCanvas.getContext("2d", { willReadFrequently: true });
-      if (!paletteContext) throw new Error("Canvas is not available");
-      paletteContext.drawImage(image, 0, 0, paletteCanvas.width, paletteCanvas.height);
-      const paletteFrame = paletteContext.getImageData(0, 0, paletteCanvas.width, paletteCanvas.height);
+      const paletteFrame = drawPickerPreview(image, canvas);
       paletteFrameRef.current = paletteFrame;
       setFile(next);
-      setSize({ width: canvas.width, height: canvas.height });
-      const center = { x: Math.floor(canvas.width / 2), y: Math.floor(canvas.height / 2) };
+      setSize({ width: image.naturalWidth, height: image.naturalHeight });
+      const center = { x: Math.floor(image.naturalWidth / 2), y: Math.floor(image.naturalHeight / 2) };
       setCoordinate(center);
       refreshPalette(paletteFrame, colorCount);
-      const pixel = context.getImageData(center.x, center.y, 1, 1).data;
+      const pixel = readOriginalImagePixel(image, center.x, center.y).data;
       setPicked(rgbToHex({ r: pixel[0] ?? 0, g: pixel[1] ?? 0, b: pixel[2] ?? 0 }));
       setPickedAlpha(pixel[3] ?? 255);
     } catch (caught) {
+      if (operation !== operationRef.current) return;
       paletteFrameRef.current = null;
+      setPalette([]);
+      if (canvasRef.current) { canvasRef.current.width = 1; canvasRef.current.height = 1; }
       setFile(null);
       setSize({ width: 0, height: 0 });
       setError(messageOf(caught, "Could not inspect that image"));
     } finally {
-      setBusy(false);
+      image?.removeAttribute("src");
+      if (operation === operationRef.current) setBusy(false);
     }
   }
 
@@ -405,17 +409,25 @@ export function ImagePaletteTool() {
     catch (caught) { setError(messageOf(caught, "Could not extract a palette")); }
   }, [colorCount, refreshPalette]);
 
-  function pickPixel(x: number, y: number) {
-    const canvas = canvasRef.current;
-    if (!canvas || !file) return;
-    const safeX = Math.min(canvas.width - 1, Math.max(0, Math.round(x)));
-    const safeY = Math.min(canvas.height - 1, Math.max(0, Math.round(y)));
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) return;
-    const pixel = context.getImageData(safeX, safeY, 1, 1).data;
-    setCoordinate({ x: safeX, y: safeY });
-    setPicked(rgbToHex({ r: pixel[0] ?? 0, g: pixel[1] ?? 0, b: pixel[2] ?? 0 }));
-    setPickedAlpha(pixel[3] ?? 255);
+  async function pickPixel(x: number, y: number) {
+    if (!file || busy) return;
+    const operation = ++operationRef.current;
+    let image: HTMLImageElement | undefined;
+    setBusy(true);
+    setError("");
+    try {
+      image = await loadImage(file);
+      if (operation !== operationRef.current) return;
+      const pixel = readOriginalImagePixel(image, x, y);
+      setCoordinate({ x: pixel.x, y: pixel.y });
+      setPicked(rgbToHex({ r: pixel.data[0] ?? 0, g: pixel.data[1] ?? 0, b: pixel.data[2] ?? 0 }));
+      setPickedAlpha(pixel.data[3] ?? 255);
+    } catch (caught) {
+      if (operation === operationRef.current) setError(messageOf(caught, "Could not read that pixel"));
+    } finally {
+      image?.removeAttribute("src");
+      if (operation === operationRef.current) setBusy(false);
+    }
   }
 
   const pickedRgb = hexToRgb(picked);
@@ -448,7 +460,7 @@ export function ImagePaletteTool() {
             onClick={(event) => {
               const canvas = event.currentTarget;
               const bounds = canvas.getBoundingClientRect();
-              pickPixel((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height);
+              pickPixel((event.clientX - bounds.left) * size.width / bounds.width, (event.clientY - bounds.top) * size.height / bounds.height);
             }}
           />
           {file && (
@@ -458,7 +470,7 @@ export function ImagePaletteTool() {
                 <label className="field"><span>Pixel Y</span><input type="number" min={0} max={Math.max(0, size.height - 1)} value={coordinate.y} onChange={(event) => setCoordinate((current) => ({ ...current, y: Number(event.target.value) }))} /></label>
               </div>
               <div className="row">
-                <button className="btn ghost" type="button" onClick={() => pickPixel(coordinate.x, coordinate.y)}>Read pixel</button>
+                <button className="btn ghost" type="button" disabled={busy} onClick={() => pickPixel(coordinate.x, coordinate.y)}>Read pixel</button>
                 <span aria-label={`Picked color ${picked} at ${Math.round(alphaFraction * 100)} percent opacity`} style={{ display: "inline-block", width: 42, height: 42, borderRadius: 4, border: "1px solid var(--line-strong)", background: `rgba(${pickedRgb.r}, ${pickedRgb.g}, ${pickedRgb.b}, ${formattedAlpha})` }} />
               </div>
               {pickedAlpha < 255 && <p className="lede" style={{ margin: 0 }}>{pickedAlpha === 0 ? "This pixel is fully transparent" : `Alpha: ${Math.round(alphaFraction * 100)}% (${pickedAlpha}/255)`}. RGB channels can still contain a color underneath.</p>}
