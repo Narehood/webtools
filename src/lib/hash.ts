@@ -1,13 +1,14 @@
-import { sha1 } from "@noble/hashes/legacy.js";
-import { sha256, sha512 } from "@noble/hashes/sha2.js";
+import { md5, ripemd160, sha1 } from "@noble/hashes/legacy.js";
+import { sha224, sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
+import { sha3_224, sha3_256, sha3_384, sha3_512 } from "@noble/hashes/sha3.js";
+
+export const hashFunctions = { "MD5": md5, "SHA-1": sha1, "SHA-224": sha224, "SHA-256": sha256, "SHA-384": sha384, "SHA-512": sha512, "SHA3-224": sha3_224, "SHA3-256": sha3_256, "SHA3-384": sha3_384, "SHA3-512": sha3_512, "RIPEMD-160": ripemd160 } as const;
+export type HashAlgorithm = keyof typeof hashFunctions;
+export const hashAlgorithms = Object.keys(hashFunctions) as HashAlgorithm[];
 
 function hasher(algorithm: string) {
-  switch (algorithm) {
-    case "SHA-1": return sha1.create();
-    case "SHA-256": return sha256.create();
-    case "SHA-512": return sha512.create();
-    default: throw new Error("Unsupported hash algorithm");
-  }
+  if (!Object.hasOwn(hashFunctions,algorithm)) throw new Error("Unsupported hash algorithm");
+  return hashFunctions[algorithm as HashAlgorithm].create();
 }
 
 function hex(bytes: Uint8Array) {

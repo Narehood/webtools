@@ -4,11 +4,13 @@ import QRCode from "qrcode";
 export function QrTool() {
   const [text, setText] = useState("https://localhost:5173");
   const [svg, setSvg] = useState("");
+  const [dark, setDark] = useState("#1a1612");
+  const [light, setLight] = useState("#ffffff");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    QRCode.toString(text || " ", { type: "svg", margin: 1, width: 220, color: { dark: "#1a1612", light: "#ffffff" } })
+    QRCode.toString(text || " ", { type: "svg", margin: 4, width: 220, color: { dark, light } })
       .then((value) => {
         if (!cancelled) {
           setSvg(value);
@@ -24,7 +26,7 @@ export function QrTool() {
     return () => {
       cancelled = true;
     };
-  }, [text]);
+  }, [text, dark, light]);
   const isSvg = svg.startsWith("<svg");
 
   function download() {
@@ -51,6 +53,7 @@ export function QrTool() {
             <span>Content</span>
             <textarea value={text} onChange={(event) => setText(event.target.value)} />
           </label>
+          <div className="row" style={{ marginTop: 12 }}><label className="field"><span>Foreground</span><input type="color" value={dark} onChange={event => setDark(event.target.value)} /></label><label className="field"><span>Background</span><input type="color" value={light} onChange={event => setLight(event.target.value)} /></label></div>
           <div className="row" style={{ marginTop: 16 }}>
             <button className="btn" onClick={download} disabled={!isSvg}>
               Download SVG

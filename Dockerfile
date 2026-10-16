@@ -11,6 +11,7 @@ COPY public ./public
 COPY src ./src
 COPY server ./server
 COPY tests ./tests
+COPY docs ./docs
 RUN npm test && npm run build \
   && mkdir -p /runtime/node_modules \
   && cp -a node_modules/whoiser /runtime/node_modules/whoiser \

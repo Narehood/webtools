@@ -132,6 +132,10 @@ export const convertGroups: ConvertGroup[] = [
         toBase: (value) => value * (5 / 9),
         fromBase: (value) => value * (9 / 5),
       },
+      { id: "de", name: "Delisle (°De)", toBase: value => 373.15 - value * 2 / 3, fromBase: value => (373.15 - value) * 3 / 2 },
+      { id: "n", name: "Newton (°N)", toBase: value => value * 100 / 33 + 273.15, fromBase: value => (value - 273.15) * 33 / 100 },
+      { id: "re", name: "Réaumur (°Ré)", toBase: value => value * 5 / 4 + 273.15, fromBase: value => (value - 273.15) * 4 / 5 },
+      { id: "ro", name: "Rømer (°Rø)", toBase: value => (value - 7.5) * 40 / 21 + 273.15, fromBase: value => (value - 273.15) * 21 / 40 + 7.5 },
     ],
   },
   {

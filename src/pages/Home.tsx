@@ -31,8 +31,8 @@ export function Home() {
       <section className="hero">
         <h1>Handy tools for everyday work</h1>
         <p>
-          Collection of self-hosted utilities. Images and text stay in this browser; status, WHOIS,
-          and certificates are checked from this machine. Star a tool to pin it under Favorites. Press / to search.
+          Collection of self-hosted utilities. Images, PDFs, and text stay in this browser; domain and network
+          checks run from this machine. Star a tool to pin it under Favorites. Press / to search.
         </p>
       </section>
       <div className="segment catalog-chips" role="group" aria-label="Categories">
