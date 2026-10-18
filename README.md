@@ -86,7 +86,7 @@ docker build --build-arg VERSION="$(node -p "require('./package.json').version")
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The `package.json` version (currently `0.1.0`) is published once from `main`, or from a matching `v0.1.0` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The version in `package.json` is published once from `main`, or from a matching `v<version>` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ### Local development
 
