@@ -28,6 +28,12 @@ services:
       - "${WEBTOOLS_BIND:-0.0.0.0}:${WEBTOOLS_PORT:-8080}:8080"
     environment:
       PORT: "8080"
+      # Set this in Portainer's environment variables to enable cloud restoration.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PHOTO_REPAIR_IMAGE_MODEL: ${PHOTO_REPAIR_IMAGE_MODEL:-gpt-image-2.5-sunburst}
+      PHOTO_REPAIR_VISION_MODEL: ${PHOTO_REPAIR_VISION_MODEL:-gpt-5-mini}
+    volumes:
+      - photo-repair-data:/app/data/photo-repair
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
@@ -35,3 +41,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  photo-repair-data:

@@ -3,6 +3,7 @@ import { connect as tlsConnect } from "node:tls";
 import { createConnection, isIP } from "node:net";
 import { Resolver, lookup as dnsLookup, reverse as dnsReverse, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
 import whoiser from "whoiser";
+import { handlePhotoApi } from "./photoApi.ts";
 import { createHealthRedirectGuard, fetchStatusResponse, HealthRedirectError, type RedirectGuard } from "./httpRedirects.ts";
 import {
   compareDnsResolvers,
@@ -643,6 +644,7 @@ async function checkDomainHealth(raw: string) {
 }
 
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (await handlePhotoApi(req, res)) return true;
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return false;

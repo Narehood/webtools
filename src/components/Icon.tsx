@@ -390,6 +390,8 @@ export function Icon({ name }: { name: string }) {
       return <svg {...common}><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 15h4M10 13v4M15 15h2" /></svg>;
     case "image-palette":
       return <svg {...common}><path d="M20 13a9 9 0 1 0-8 8c2 0 3-1 2-3s0-3 2-3h2c1 0 2-1 2-2Z" /><circle cx="7" cy="10" r="1" /><circle cx="10" cy="6" r="1" /><circle cx="15" cy="7" r="1" /><circle cx="6" cy="15" r="1" /></svg>;
+    case "photo-repair":
+      return <svg {...common}><rect x="3" y="6" width="15" height="14" rx="2" /><path d="m3 17 5-5 4 4 3-3 3 3M19 2v6M16 5h6M7 3h6" /></svg>;
     case "photo-color":
       return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M12 5v14" /><path d="m3 16 4-4 3 3" /><path d="M15 9h3M15 12h3M15 15h3" /></svg>;
     case "favicon":
