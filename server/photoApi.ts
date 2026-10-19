@@ -58,6 +58,9 @@ export async function handlePhotoApi(req: IncomingMessage, res: ServerResponse, 
         send(res, 200, await store.edit(job.id, entry.id, body.edit, body.version));
       } else if (parts[3] === "approve" && req.method === "POST") {
         send(res, 200, await store.approve(job.id, entry.id));
+      } else if (parts[3] === "measure" && req.method === "POST") {
+        const body = await photoJson(req);
+        send(res, 200, await store.measure(job.id, entry.id, body.neutral));
       } else if (["before", "after", "edit-base", "download"].includes(parts[3]) && req.method === "GET") {
         if (entry.status !== "done") throw new Error("Photo is not ready for preview or download");
         const download = parts[3] === "download";

@@ -10,7 +10,8 @@ import type { IncomingMessage } from "node:http";
 import { DEFAULT_REPAIR_OPTIONS, defaultManualEdit, manualPhotoEdit, editedPhotoPath, repairOptions, usesCloud, type PhotoRepairJob, type PhotoRepairEntry, type RepairOptions, type RepairRotation } from "../src/lib/photoRepair.ts";
 import { archiveEntries, extractPhoto, indexPhotoArchive, openPhotoArchive } from "./photoArchive.ts";
 import { assessPhoto, restorePhoto, CloudPhotoError } from "./photoCloud.ts";
-import type { LocalPhotoTask } from "./photoWorker.ts";
+import type { LocalPhotoTask, MeasurePhotoTask, measureLocalPhoto } from "./photoWorker.ts";
+import type { ColorAnalysis } from "../src/lib/photoColor.ts";
 
 export const CHUNK_BYTES = 8 * 1024 ** 2;
 export const MAX_ARCHIVE_BYTES = 8 * 1024 ** 3;
@@ -18,11 +19,11 @@ const MAX_JOBS = 20;
 
 function messageOf(error: unknown) { return error instanceof Error ? error.message : "Could not process photo"; }
 
-function localPhoto(task: LocalPhotoTask) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+function photoWorker<T>(task: LocalPhotoTask | MeasurePhotoTask) {
+  return new Promise<T>((resolve, reject) => {
     const worker = new Worker(new URL("./photoWorker.ts", import.meta.url), { workerData: task });
     let answered = false;
-    worker.once("message", (message: { result?: { width: number; height: number }; error?: string }) => {
+    worker.once("message", (message: { result?: T; error?: string }) => {
       answered = true;
       if (message.error || !message.result) reject(new Error(message.error || "Image worker returned no result"));
       else resolve(message.result);
@@ -31,6 +32,8 @@ function localPhoto(task: LocalPhotoTask) {
     worker.once("exit", (code) => { if (!answered) reject(new Error(`Image worker exited without a result (code ${code})`)); });
   });
 }
+
+const localPhoto = (task: LocalPhotoTask) => photoWorker<{ width: number; height: number }>(task);
 
 export class PhotoJobStore {
   readonly root: string;
@@ -41,6 +44,7 @@ export class PhotoJobStore {
   private active = new Set<string>();
   private pauseRequested = new Set<string>();
   private exporting = new Set<string>();
+  private measurements = new Map<string, Promise<void>>();
   private readonly cloud: { assess: typeof assessPhoto; restore: typeof restorePhoto };
 
   constructor(root = process.env.PHOTO_REPAIR_DIR || path.resolve("data/photo-repair"), cloud = { assess: assessPhoto, restore: restorePhoto }) {
@@ -178,14 +182,17 @@ export class PhotoJobStore {
     const options = repairOptions(value);
     if (usesCloud(options) && (!process.env.OPENAI_API_KEY || cloudConsent !== true)) throw new Error("Cloud AI requires a server API key and permission to make paid requests");
     if (limit !== "all" && limit !== 5) throw new Error("Choose a five-photo trial or the remaining batch");
-    const hasStarted = job.entries.some((e) => e.status !== "pending") || job.analysisAttempts > 0 || job.repairAttempts > 0;
-    if (hasStarted && JSON.stringify({ ...options, maxRepairs: 0 }) !== JSON.stringify({ ...job.options, maxRepairs: 0 })) {
-      throw new Error("Processing settings are locked after the first run. You can raise the repair limit, or create a new job to use different settings.");
+    const hasSavedPhoto = job.entries.some((e) => e.status === "done");
+    const settingsChanged = JSON.stringify({ ...options, maxRepairs: 0 }) !== JSON.stringify({ ...job.options, maxRepairs: 0 });
+    if (hasSavedPhoto && settingsChanged) {
+      throw new Error("Processing settings are locked after the first completed photo. You can raise the repair limit, or create a new job to use different settings.");
     }
     job.options = options;
     const used = new Set<string>();
     for (const entry of job.entries) {
       entry.output = editedPhotoPath(entry.source, options.format, used);
+      // Assessments describe the prepared raster. Changed color settings need a fresh assessment.
+      if (settingsChanged) { delete entry.analysis; delete entry.note; }
       if (retry === true && entry.status === "failed") { entry.status = "pending"; delete entry.error; }
     }
     if (!job.entries.some((e) => e.status === "pending")) throw new Error("No pending photos. Select retry failed photos if needed.");
@@ -228,6 +235,7 @@ export class PhotoJobStore {
         if (disk.bavail * disk.bsize < Math.max(512 * 1024 ** 2, entry.bytes * 4)) throw new Error("Server disk space is low. Free space before resuming.");
         const source = path.join(this.directory(job.id), "current.input");
         entry.status = "processing";
+        entry.repaired = false; entry.review = false; entry.rotation = 0;
         delete entry.error;
         await this.save(job);
         try {
@@ -259,7 +267,7 @@ export class PhotoJobStore {
             await this.save(job);
             const repaired = await this.cloud.restore(sample);
             const target = `${output}.tmp`;
-            await sharp(repaired, { limitInputPixels: 60_000_000 }).toFormat(job.options.format, { quality: 95 }).toFile(target);
+            await sharp(repaired, { limitInputPixels: 60_000_000 }).toFormat(job.options.format, job.options.format === "png" ? {} : { quality: 95 }).toFile(target);
             await rename(target, output);
             entry.cloudInFlight = false;
             entry.repaired = true;
@@ -291,7 +299,7 @@ export class PhotoJobStore {
 
   private async rotateFile(file: string, rotation: RepairRotation, format: RepairOptions["format"]) {
     const target = `${file}.tmp`;
-    await sharp(file).rotate(rotation).toFormat(format, { quality: 95 }).toFile(target);
+    await sharp(file).rotate(rotation).toFormat(format, format === "png" ? {} : { quality: 95 }).toFile(target);
     await rename(target, file);
   }
 
@@ -330,7 +338,7 @@ export class PhotoJobStore {
         await copyFile(base, `${target}.tmp`);
         await copyFile(this.preview(job.id, entry.id, "after"), `${preview}.tmp`);
       } else {
-        dimensions = await localPhoto({ input: base, output: `${target}.tmp`, options: job.options, manual: edit });
+        dimensions = await localPhoto({ input: base, output: `${target}.tmp`, options: job.options, manual: edit, analysis: await this.cachedColorAnalysis(job, entry) });
         await sharp(`${target}.tmp`).resize(1000, 850, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toFile(`${preview}.tmp`);
       }
       await rename(`${target}.tmp`, target);
@@ -359,9 +367,45 @@ export class PhotoJobStore {
     }
   }
 
+  private colorAnalysisPath(job: PhotoRepairJob, entry: PhotoRepairEntry) {
+    return path.join(this.directory(job.id), `${entry.id}.color-analysis.json`);
+  }
+
+  private async cachedColorAnalysis(job: PhotoRepairJob, entry: PhotoRepairEntry): Promise<ColorAnalysis | undefined> {
+    try { return JSON.parse(await readFile(this.colorAnalysisPath(job, entry), "utf8")) as ColorAnalysis; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+
+  async measure(id: string, entryId: number, neutral: unknown) {
+    const job = await this.get(id);
+    const entry = job.entries.find((e) => e.id === entryId && e.status === "done");
+    if (!entry) throw new Error("Completed photo not found");
+    // Reuse the edit validator for normalized, unrotated coordinates.
+    const spot = manualPhotoEdit({ ...defaultManualEdit(), neutral: neutral ?? null }).neutral;
+    // The retained batch raster is immutable, so review can load while other photos process.
+    // Serialize measurements per job to bound memory and keep cache writes consistent.
+    const result = (this.measurements.get(id) || Promise.resolve()).then(async () => {
+      const analysis = await this.cachedColorAnalysis(job, entry);
+      if (analysis && !spot) return { analysis, neutral: null };
+      const result = await photoWorker<Awaited<ReturnType<typeof measureLocalPhoto>>>({
+        input: this.output(job, { ...entry, editVersion: 0 }), measure: true, analysis, neutral: spot,
+      });
+      if (!analysis) {
+        const file = this.colorAnalysisPath(job, entry);
+        await writeFile(`${file}.tmp`, JSON.stringify(result.analysis));
+        await rename(`${file}.tmp`, file);
+      }
+      return result;
+    });
+    const settled = result.then(() => {}, () => {});
+    this.measurements.set(id, settled);
+    try { return await result; }
+    finally { if (this.measurements.get(id) === settled) this.measurements.delete(id); }
+  }
+
   async remove(id: string) {
     const job = await this.get(id);
-    if (job.state === "indexing" || this.active.has(id) || this.uploads.has(id) || this.exporting.has(id)) throw new Error("Pause this job and finish indexing/uploads/downloads before deleting it");
+    if (job.state === "indexing" || this.active.has(id) || this.uploads.has(id) || this.exporting.has(id) || this.measurements.has(id)) throw new Error("Pause this job and finish indexing/uploads/downloads/review loading before deleting it");
     await this.writes.get(id);
     // directory() validates the UUID and fixes it directly below the configured root.
     const target = this.directory(id);

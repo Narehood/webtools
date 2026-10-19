@@ -12,7 +12,8 @@ COPY src ./src
 COPY server ./server
 COPY tests ./tests
 COPY docs ./docs
-RUN npm test && npm run build && npm prune --omit=dev
+COPY scripts ./scripts
+RUN npm test && npm run build && node scripts/copy-server-deps.mjs /runtime
 
 FROM node:24-alpine
 WORKDIR /app
@@ -25,7 +26,7 @@ LABEL org.opencontainers.image.source="https://github.com/Narehood/webtools" \
 
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./
 COPY --from=build --chown=node:node /app/src/lib/photoColor.ts /app/src/lib/photoRepair.ts /app/src/lib/fileImageTools.ts ./src/lib/
 RUN mkdir -p /app/data/photo-repair && chown -R node:node /app/data
