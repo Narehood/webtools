@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Homelab image: Node 24 on Alpine. Frontend is compiled away;
-# the running container only needs Node, the static files, and whoiser.
+# the running container includes native image codecs for disk-backed photo jobs.
 
 FROM node:24-alpine AS build
 WORKDIR /app
@@ -12,13 +12,8 @@ COPY src ./src
 COPY server ./server
 COPY tests ./tests
 COPY docs ./docs
-RUN npm test && npm run build \
-  && mkdir -p /runtime/node_modules \
-  && cp -a node_modules/whoiser /runtime/node_modules/whoiser \
-  && if [ -d node_modules/punycode ]; then cp -a node_modules/punycode /runtime/node_modules/punycode; fi \
-  && rm -rf /runtime/node_modules/whoiser/test \
-            /runtime/node_modules/whoiser/examples \
-            /runtime/node_modules/whoiser/.github
+COPY scripts ./scripts
+RUN npm test && npm run build && node scripts/copy-server-deps.mjs /runtime
 
 FROM node:24-alpine
 WORKDIR /app
@@ -33,6 +28,9 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./
+COPY --from=build --chown=node:node /app/src/lib/photoColor.ts /app/src/lib/photoRepair.ts /app/src/lib/fileImageTools.ts ./src/lib/
+RUN mkdir -p /app/data/photo-repair && chown -R node:node /app/data
+ENV PHOTO_REPAIR_DIR=/app/data/photo-repair
 
 # VERSION must be the package.json version. There is no default, so a local
 # build cannot record 0.0.0 when the arg is forgotten.

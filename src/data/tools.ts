@@ -92,6 +92,16 @@ export const tools: Tool[] = [
     tileInk: "#e2b57a",
   },
   {
+    slug: "photo-repair",
+    name: "Bulk photo repair",
+    blurb: "Restore large photo ZIPs, correct color, rotate scans, and repair damage with optional cloud AI.",
+    category: "images",
+    local: false,
+    featured: true,
+    tile: "rgba(226,181,122,.16)",
+    tileInk: "#e2b57a",
+  },
+  {
     slug: "photo-color",
     name: "Photo color fix",
     blurb: "Remove yellow and faded casts from scanned prints and negatives, one photo or a whole batch.",

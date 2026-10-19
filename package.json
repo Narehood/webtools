@@ -1,7 +1,7 @@
 {
   "name": "webtools",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -39,13 +39,16 @@
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.2",
     "reflect-metadata": "^0.2.2",
+    "sharp": "^0.35.5",
     "smol-toml": "^1.9.1",
     "sql-formatter": "^15.9.0",
     "ua-parser-js": "^1.0.41",
     "uuid": "^14.0.3",
     "whoiser": "^1.18.0",
     "xml-formatter": "^3.7.0",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -56,6 +59,8 @@
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@types/ua-parser-js": "^0.7.39",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^5.0.2",
     "typescript": "^5.9.2",
     "vite": "^7.1.5"

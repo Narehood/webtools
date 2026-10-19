@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   IMAGE_HEADER_BYTES,
   assertImageDimensions,
@@ -530,6 +531,7 @@ export function PhotoColorTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>Photo color fix</h1>
+        <Link className="btn ghost small" to="/photo-repair">Have a large ZIP or damaged scans? Open bulk photo repair</Link>
         <p className="lede">
           Remove yellow, faded, or off-color casts from scanned prints and negatives. Every photo is balanced automatically, then you can fine-tune it. Pixels never leave this browser.
         </p>

@@ -467,6 +467,79 @@ fieldset.stack { border: 0; padding: 0; margin: 0; min-width: 0; }
 
 .workspace.crop-workspace { max-width: 1100px; }
 .workspace.photo-workspace { max-width: 1240px; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.75fr); }
+.workspace.repair-workspace { max-width: 1440px; grid-template-columns: minmax(0, 1.1fr) minmax(320px, 1fr); align-items: start; }
+.repair-workspace .panel h2 { margin: 0; }
+.repair-workspace .repair-muted { margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.6; }
+.repair-between { justify-content: space-between; }
+.repair-drop { min-height: 140px; margin: 18px 0; display: flex; flex-direction: column; gap: 10px; }
+.repair-drop span { color: var(--muted); font-size: .82rem; }
+.repair-disabled { opacity: .55; pointer-events: none; }
+.repair-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.repair-options input[type="range"] { padding: 8px 0; min-height: 36px; accent-color: var(--accent); }
+.repair-explainer { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); font-size: .82rem; line-height: 1.65; }
+.repair-explainer p { color: var(--muted); margin: 8px 0 0; }
+.repair-job-picker { margin: 16px 0; }
+.repair-workspace progress { display: block; width: 100%; height: 9px; accent-color: var(--accent); }
+.repair-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 10px 0; }
+.repair-stats strong { display: block; font-size: 1.8rem; font-weight: 500; }
+.repair-stats span { color: var(--muted); font-size: .75rem; }
+.repair-error, .repair-notice { margin: 0; padding: 12px; border-radius: var(--radius); font-size: .82rem; line-height: 1.6; overflow-wrap: anywhere; }
+.repair-error { border: 1px solid var(--coral); color: var(--coral); }
+.repair-notice { border: 1px solid var(--line-strong); background: var(--accent-dim); }
+.repair-current, .repair-filename { overflow-wrap: anywhere; }
+.repair-filename { margin: 0; font-size: .82rem; color: var(--muted); }
+.repair-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.repair-compare figure { margin: 0; min-width: 0; }
+.repair-compare img { width: 100%; height: 250px; object-fit: contain; background: var(--drop-bg); border: 1px solid var(--line); }
+.repair-compare figcaption { padding-top: 8px; color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.repair-empty { min-height: 260px; display: flex; flex-direction: column; justify-content: center; padding: 28px; background: var(--drop-bg); border: 1px dashed var(--line-strong); text-align: center; }
+.repair-empty p { font-size: .85rem; color: var(--muted); line-height: 1.6; }
+.repair-full { grid-column: 1 / -1; }
+.repair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 12px; }
+.repair-card { display: flex; flex-direction: column; gap: 7px; padding: 8px; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.repair-card[aria-pressed="true"] { border-color: var(--accent); }
+.repair-card:disabled { cursor: default; opacity: .8; }
+.repair-card img, .repair-placeholder { width: 100%; height: 115px; object-fit: contain; background: var(--drop-bg); }
+.repair-placeholder { display: grid; place-items: center; color: var(--faint); font-size: .8rem; }
+.repair-card strong { font-size: .75rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.repair-card span, .repair-card small { font-size: .7rem; color: var(--muted); overflow-wrap: anywhere; }
+.repair-card small { color: var(--coral); }
+.repair-review { scroll-margin-top: 76px; min-width: 0; outline: none; }
+.repair-review.is-focus { position: fixed; inset: 12px; z-index: 200; overflow: auto; padding: 22px; background: var(--bg-raise); box-shadow: 0 0 0 20px var(--bg); }
+.repair-review-header { position: sticky; top: 55px; z-index: 3; background: var(--bg-raise); padding: 8px 0 12px; border-bottom: 1px solid var(--line); }
+.repair-review.is-focus .repair-review-header { top: -22px; margin: -8px 0 0; padding-top: 16px; }
+.repair-review-header .repair-filename { color: var(--ink); }
+.repair-review-position { font-variant-numeric: tabular-nums; font-size: .85rem; white-space: nowrap; }
+.repair-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; }
+.repair-editor-stage { min-height: 380px; display: grid; align-items: center; background: var(--drop-bg); border: 1px solid var(--line); padding: 12px; }
+.repair-editor-stage.comparing { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.repair-editor-stage figure { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.repair-editor-stage canvas, .repair-editor-stage img { display: block; width: auto; height: auto; max-width: 100%; max-height: 62vh; object-fit: contain; }
+.repair-editor-stage figcaption { color: var(--muted); font-size: .73rem; line-height: 1.5; text-align: center; }
+.repair-editor-stage canvas.picking { cursor: crosshair; outline: 2px solid var(--accent); }
+.repair-editor-stage .repair-editor-hidden { display: none; }
+.repair-editor-controls { border-left: 1px solid var(--line); padding-left: 20px; }
+.repair-editor-controls h3 { font-size: .95rem; margin: 0; }
+.repair-adjustment > span { display: flex; justify-content: space-between; gap: 10px; }
+.repair-adjustment output { color: var(--ink); font-variant-numeric: tabular-nums; }
+.repair-adjustment input[type="range"] { padding: 0; min-height: 24px; accent-color: var(--accent); cursor: pointer; }
+.repair-adjustment small { font-size: .7rem; color: var(--muted); }
+.repair-shortcuts kbd { display: inline-block; font-size: .72rem; font-family: var(--mono); padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--bg); }
+.repair-review-filmstrip { padding-top: 18px; border-top: 1px solid var(--line); }
+.repair-jump { align-items: end; }
+.repair-jump input { max-width: 110px; }
+@media (max-width: 1100px) { .repair-editor-layout { grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; } }
+@media (max-width: 760px) {
+  .repair-editor-layout { grid-template-columns: minmax(0, 1fr); }
+  .repair-editor-controls { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 16px; }
+  .repair-review-header { position: static; }
+  .repair-editor-stage { min-height: 240px; }
+  .repair-editor-stage.comparing { grid-template-columns: minmax(0, 1fr); }
+  .repair-review.is-focus { inset: 4px; padding: 12px; }
+  .repair-review.is-focus .repair-review-header { position: static; margin: 0; padding-top: 0; }
+}
+@media (max-width: 1100px) { .workspace.repair-workspace { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 540px) { .repair-options, .repair-compare { grid-template-columns: minmax(0, 1fr); } .repair-compare img { height: 220px; } }
 .drop.compact { min-height: 0; padding: 14px; }
 .photo-stage {
   position: relative;

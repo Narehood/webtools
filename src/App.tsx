@@ -64,6 +64,7 @@ const DomainHealthTool = lazy(() => import("./pages/tools/DomainHealthTool").the
 const DockerComposeTool = lazy(() => import("./pages/tools/DockerComposeTool").then((module) => ({ default: module.DockerComposeTool })));
 const DateCalculatorTool = lazy(() => import("./pages/tools/DateCalculatorTool").then((module) => ({ default: module.DateCalculatorTool })));
 const PhotoColorTool = lazy(() => import("./pages/tools/PhotoColorTool").then((module) => ({ default: module.PhotoColorTool })));
+const PhotoRepairTool = lazy(() => import("./pages/tools/PhotoRepairTool").then((module) => ({ default: module.PhotoRepairTool })));
 
 export default function App() {
   return (
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/docker-compose" element={<DockerComposeTool />} />
           <Route path="/date-calculator" element={<DateCalculatorTool />} />
           <Route path="/photo-color" element={<PhotoColorTool />} />
+          <Route path="/photo-repair" element={<PhotoRepairTool />} />
           <Route path="/background" element={<BackgroundTool />} />
           <Route path="/convert" element={<ConvertTool />} />
           <Route path="/compress" element={<CompressTool />} />
