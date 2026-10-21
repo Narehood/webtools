@@ -44,12 +44,22 @@ async function loaded(store: PhotoJobStore, files: [string, Buffer][], zip64 = f
   return job;
 }
 
-async function finished(job: PhotoRepairJob) {
+async function finished(store: PhotoJobStore, job: PhotoRepairJob) {
   const deadline = Date.now() + 25_000;
-  while (job.state === "running" && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.notEqual(job.state, "running", "job must settle");
-  // The run's finally handler releases its mutation lock immediately after the persisted state.
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  while (Date.now() < deadline) {
+    if (job.state !== "running") {
+      try {
+        // State changes before final writes and cleanup release the mutation lock.
+        const release = store.beginDownload(job.id);
+        release();
+        return;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("finish the current photo/download")) throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  assert.fail("job must settle and release its mutation lock");
 }
 
 test("safe edited paths preserve folders and resolve case-insensitive collisions", () => {
@@ -137,14 +147,14 @@ test("CPU trial, resume, broken-image isolation, original preservation, rotation
     const job = await loaded(store, [...Array.from({ length: 6 }, (_, i): [string, Buffer] => [`Roll/Scan ${i + 1}.jpg`, i === 0 ? exif : photo]), ["Roll/Scan 7.jpg", Buffer.from("broken image")], ["notes.txt", Buffer.from("preserve source")]]);
     const original = await readFile(store.archive(job.id));
     await store.start(job.id, DEFAULT_REPAIR_OPTIONS, 5, false, false);
-    await finished(job);
+    await finished(store, job);
     assert.equal(job.entries.filter((e) => e.status === "done").length, 5);
     assert.equal(job.state, "paused");
     assert.match(job.error || "", /trial/);
     assert.equal(job.entries[0].width, 64);
     assert.equal(job.entries[0].height, 96);
     await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
-    await finished(job);
+    await finished(store, job);
     assert.equal(job.state, "complete");
     assert.equal(job.entries.filter((e) => e.status === "done").length, 6);
     assert.equal(job.entries.filter((e) => e.status === "failed").length, 1);
@@ -172,7 +182,7 @@ test("manual edits render at full resolution from a retained base, persist, and 
     const store = new PhotoJobStore(root);
     const job = await loaded(store, [["roll/scan.jpg", photo]]);
     const options = { ...DEFAULT_REPAIR_OPTIONS, color: false, format: "png" as const };
-    await store.start(job.id, options, "all", false, false); await finished(job);
+    await store.start(job.id, options, "all", false, false); await finished(store, job);
     const entry = job.entries[0];
     const base = store.output(job, entry);
     const batchBytes = await readFile(base);
@@ -213,7 +223,7 @@ test("a failed manual render preserves the last saved result and releases its lo
   try {
     const store = new PhotoJobStore(root);
     const job = await loaded(store, [["scan.jpg", photo]]);
-    await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(job);
+    await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(store, job);
     const entry = job.entries[0];
     const base = store.output(job, entry);
     const baseBytes = await readFile(base);
@@ -251,7 +261,7 @@ test("review analysis and gray samples use the retained raster and match full-re
     const photo = await sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
     const store = new PhotoJobStore(root);
     const job = await loaded(store, [["grainy-scan.png", photo]]);
-    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, format: "png" }, "all", false, false); await finished(job);
+    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, format: "png" }, "all", false, false); await finished(store, job);
     const entry = job.entries[0], base = store.output(job, entry);
     const full = await sharp(base).autoOrient().toColourspace("srgb").ensureAlpha().raw().toBuffer();
     const pixels = { data: full, width, height };
@@ -305,7 +315,7 @@ test("failed first cloud assessments and repairs allow CPU fallback using the sa
       };
       let store = new PhotoJobStore(path.join(root, failure), cloud);
       let job = await loaded(store, [["a.jpg", photo], ["b.jpg", photo]]);
-      await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, orientation: "scene", repair: "auto" }, "all", false, true); await finished(job);
+      await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, orientation: "scene", repair: "auto" }, "all", false, true); await finished(store, job);
       assert.equal(job.entries.filter((entry) => entry.status === "done").length, 0);
       assert.equal(job.state, "paused");
       if (failure === "interrupted") {
@@ -315,7 +325,7 @@ test("failed first cloud assessments and repairs allow CPU fallback using the sa
       }
       const archive = await readFile(store.archive(job.id)), attempts = requests;
       const fallback = { ...DEFAULT_REPAIR_OPTIONS, color: false, strength: 35, orientation: "metadata" as const, repair: "off" as const, format: "png" as const };
-      await store.start(job.id, fallback, "all", true, false); await finished(job);
+      await store.start(job.id, fallback, "all", true, false); await finished(store, job);
       assert.equal(job.state, "complete"); assert.equal(requests, attempts, "CPU fallback must make no more paid requests");
       assert.ok(job.entries.every((entry) => entry.status === "done" && entry.output.endsWith("_edited.png") && !entry.analysis && !entry.note && !entry.repaired));
       assert.deepEqual(await readFile(store.archive(job.id)), archive, "reuse the uploaded ZIP");
@@ -345,7 +355,7 @@ test("cloud damage selection, uncertain orientation, hard repair limit and cache
     });
     const job = await loaded(store, [["a.jpg", photo], ["b.jpg", photo], ["c.jpg", photo]]);
     const options = { ...DEFAULT_REPAIR_OPTIONS, repair: "auto" as const, orientation: "scene" as const, maxRepairs: 1 };
-    await store.start(job.id, options, "all", false, true); await finished(job);
+    await store.start(job.id, options, "all", false, true); await finished(store, job);
     assert.equal(job.state, "paused"); assert.equal(repairs, 1); assert.equal(assessments, 3);
     assert.equal(job.entries[0].rotation, 90, "confident scene rotation is applied");
     assert.equal(job.entries[0].width, 64); assert.equal(job.entries[0].height, 96);
@@ -353,7 +363,7 @@ test("cloud damage selection, uncertain orientation, hard repair limit and cache
     assert.equal(job.entries[1].rotation, 0, "uncertain scene is not auto-rotated");
     assert.equal(job.entries[1].review, true); assert.equal(job.entries[2].status, "pending");
     assert.equal(job.repairAttempts, 1);
-    await store.start(job.id, { ...options, maxRepairs: 2 }, "all", false, true); await finished(job);
+    await store.start(job.id, { ...options, maxRepairs: 2 }, "all", false, true); await finished(store, job);
     assert.equal(job.state, "complete"); assert.equal(repairs, 2); assert.equal(assessments, 3, "saved assessments must not be charged again");
     await store.approve(job.id, job.entries[1].id);
     assert.equal(job.entries[1].review, false);
@@ -372,7 +382,7 @@ test("cloud errors pause the batch without retrying paid requests; restart flags
     let repairs = 0;
     const store = new PhotoJobStore(root, { assess: async () => { throw new Error("not used"); }, restore: async () => { repairs++; throw new CloudPhotoError("quota exhausted"); } });
     const job = await loaded(store, [["a.jpg", photo], ["b.jpg", photo]]);
-    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, repair: "all" }, "all", false, true); await finished(job);
+    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, repair: "all" }, "all", false, true); await finished(store, job);
     assert.equal(repairs, 1); assert.equal(job.state, "paused"); assert.equal(job.entries[0].status, "failed");
     assert.equal(job.entries[1].status, "pending");
     job.state = "running"; job.entries[1].status = "processing"; job.entries[1].cloudInFlight = true;
@@ -404,7 +414,7 @@ test("pause finishes the current paid photo and prevents the next request; activ
     assert.throws(() => store.beginDownload(job.id), /Pause/);
     await store.pause(job.id);
     release(photo);
-    await finished(job);
+    await finished(store, job);
     assert.equal(job.state, "paused");
     assert.equal(job.entries[0].status, "done");
     assert.equal(job.entries[1].status, "pending");
@@ -450,7 +460,7 @@ test("HTTP API streams upload/download and refuses cross-site commands and inval
     assert.equal((await fetch(`${base}/${job.id}/upload?offset=0`, { method: "PUT", body: bytes })).status, 200);
     assert.equal((await fetch(`${base}/${job.id}/finalize`, { method: "POST" })).status, 200);
     await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
-    await finished(await store.get(job.id));
+    await finished(store, await store.get(job.id));
     const sourcePreview = await (await fetch(`${base}/${job.id}/photos/0/edit-base`)).arrayBuffer();
     const measurement = await fetch(`${base}/${job.id}/photos/0/measure`, { method: "POST", body: JSON.stringify({ neutral: { x: 0.5, y: 0.5 } }) });
     assert.equal(measurement.status, 200);
