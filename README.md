@@ -91,11 +91,13 @@ The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-
 ### Local development
 
 ```bash
-npm install
+nvm install
+nvm use
+npm ci
 npm run dev
 ```
 
-Needs Node 24+. Open [http://localhost:5173](http://localhost:5173).
+Needs Node 24.22.1 or newer in the Node 24 LTS line. `.nvmrc` selects 24.22.1; if you use a different Node manager, install that version before running `npm ci`. This is the [October 2026 security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases). Both Docker stages use `node:24.22.1-alpine`, and CI pulls the base image on every build to pick up Alpine updates. Open [http://localhost:5173](http://localhost:5173).
 
 Run `npm test` for parser, hashing, image-format, and production-server regression checks. Run `npm run build` to type-check and build the app. Container builds run both checks.
 
