@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
-# Homelab image: Node 24 on Alpine. Frontend is compiled away;
+# Homelab image: Node 24.22.1 LTS on Alpine. Frontend is compiled away;
 # the running container includes native image codecs for disk-backed photo jobs.
 
-FROM node:24-alpine AS build
+FROM node:24.22.1-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -15,7 +15,7 @@ COPY docs ./docs
 COPY scripts ./scripts
 RUN npm test && npm run build && node scripts/copy-server-deps.mjs /runtime
 
-FROM node:24-alpine
+FROM node:24.22.1-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080
