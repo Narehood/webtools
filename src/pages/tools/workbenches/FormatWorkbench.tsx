@@ -139,7 +139,7 @@ export default function FormatWorkbench({ slug }: { slug: string }) {
         },
       ],
       run: (v) => convertToml(v.input, v.from, v.to),
-      note: "Convert TOML, JSON, or YAML. TOML requires a root object and cannot represent null values. JSON encodes date values as strings.",
+      note: "Convert TOML, JSON, or YAML. TOML requires a root object and cannot represent null values. Large integers stay exact in YAML/TOML; quote them for JSON. Decimals use standard floating-point precision. JSON encodes dates as strings.",
       filename: "converted.txt",
     },
     xml: {

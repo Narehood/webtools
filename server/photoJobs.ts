@@ -19,21 +19,35 @@ const MAX_JOBS = 20;
 
 function messageOf(error: unknown) { return error instanceof Error ? error.message : "Could not process photo"; }
 
+export type LocalPhotoRender = (task: LocalPhotoTask) => Promise<{ width: number; height: number }>;
+
 function photoWorker<T>(task: LocalPhotoTask | MeasurePhotoTask) {
   return new Promise<T>((resolve, reject) => {
     const worker = new Worker(new URL("./photoWorker.ts", import.meta.url), { workerData: task });
-    let answered = false;
+    let outcome: { result: T } | { error: unknown } | undefined;
     worker.once("message", (message: { result?: T; error?: string }) => {
-      answered = true;
-      if (message.error || !message.result) reject(new Error(message.error || "Image worker returned no result"));
-      else resolve(message.result);
+      outcome ??= message.error || !message.result ? { error: new Error(message.error || "Image worker returned no result") } : { result: message.result };
     });
-    worker.once("error", reject);
-    worker.once("exit", (code) => { if (!answered) reject(new Error(`Image worker exited without a result (code ${code})`)); });
+    worker.once("error", (error) => { outcome ??= { error }; });
+    // Wait for thread exit so full-resolution buffers are gone before the next CPU task starts.
+    worker.once("exit", (code) => {
+      if (!outcome) reject(new Error(`Image worker exited without a result (code ${code})`));
+      else if ("result" in outcome) resolve(outcome.result);
+      else reject(outcome.error);
+    });
   });
 }
 
-const localPhoto = (task: LocalPhotoTask) => photoWorker<{ width: number; height: number }>(task);
+// Batches, manual edits, and review measurements share one FIFO slot per process for full-resolution CPU work.
+// Per-job locks still guard consistency; this bounds memory across jobs. Cloud work never holds it.
+let photoWorkQueue: Promise<unknown> = Promise.resolve();
+function workExclusively<T>(work: () => Promise<T>) {
+  const result = photoWorkQueue.then(work);
+  photoWorkQueue = result.catch(() => {});
+  return result;
+}
+
+const localPhoto: LocalPhotoRender = (task) => photoWorker(task);
 
 export class PhotoJobStore {
   readonly root: string;
@@ -42,14 +56,18 @@ export class PhotoJobStore {
   private writes = new Map<string, Promise<void>>();
   private uploads = new Set<string>();
   private active = new Set<string>();
+  private batches = new Set<string>();
   private pauseRequested = new Set<string>();
   private exporting = new Set<string>();
   private measurements = new Map<string, Promise<void>>();
   private readonly cloud: { assess: typeof assessPhoto; restore: typeof restorePhoto };
+  private readonly render: LocalPhotoRender;
 
-  constructor(root = process.env.PHOTO_REPAIR_DIR || path.resolve("data/photo-repair"), cloud = { assess: assessPhoto, restore: restorePhoto }) {
-    this.root = path.resolve(root); this.cloud = cloud;
+  constructor(root = process.env.PHOTO_REPAIR_DIR || path.resolve("data/photo-repair"), cloud = { assess: assessPhoto, restore: restorePhoto }, render = localPhoto) {
+    this.root = path.resolve(root); this.cloud = cloud; this.render = render;
   }
+
+  private renderPhoto(task: LocalPhotoTask) { return workExclusively(() => this.render(task)); }
 
   async init() {
     this.ready ??= (async () => {
@@ -178,7 +196,7 @@ export class PhotoJobStore {
   async start(id: string, value: unknown, limit: unknown, retry: unknown, cloudConsent: unknown) {
     const job = await this.get(id);
     if (!["ready", "paused", "complete"].includes(job.state) || this.active.has(id) || this.exporting.has(id)) throw new Error("Pause processing and finish downloads before changing this job");
-    if (this.active.size) throw new Error("Another photo job is processing. Pause it before starting this one.");
+    if (this.batches.size) throw new Error("Another photo job is processing. Pause it before starting this one.");
     const options = repairOptions(value);
     if (usesCloud(options) && (!process.env.OPENAI_API_KEY || cloudConsent !== true)) throw new Error("Cloud AI requires a server API key and permission to make paid requests");
     if (limit !== "all" && limit !== 5) throw new Error("Choose a five-photo trial or the remaining batch");
@@ -199,9 +217,10 @@ export class PhotoJobStore {
     job.state = "running";
     delete job.error;
     this.active.add(id);
+    this.batches.add(id);
     this.pauseRequested.delete(id);
     try { await this.save(job); }
-    catch (error) { this.active.delete(id); job.state = "paused"; throw error; }
+    catch (error) { this.active.delete(id); this.batches.delete(id); job.state = "paused"; throw error; }
     void this.run(job, limit === 5 ? 5 : Infinity).catch(async (error: unknown) => {
       for (const entry of job.entries) if (entry.status === "processing") {
         entry.status = entry.cloudInFlight ? "failed" : "pending";
@@ -210,7 +229,7 @@ export class PhotoJobStore {
       }
       job.state = "paused"; job.error = messageOf(error);
       await this.save(job).catch(() => {});
-    }).finally(() => { this.active.delete(id); this.pauseRequested.delete(id); });
+    }).finally(() => { this.active.delete(id); this.batches.delete(id); this.pauseRequested.delete(id); });
     return job;
   }
 
@@ -241,7 +260,7 @@ export class PhotoJobStore {
         try {
           await extractPhoto(zip, entries[entry.id], source);
           const output = this.output(job, entry);
-          const dimensions = await localPhoto({ input: source, output, before: this.preview(job.id, entry.id, "before"), options: job.options });
+          const dimensions = await this.renderPhoto({ input: source, output, before: this.preview(job.id, entry.id, "before"), options: job.options });
           entry.width = dimensions.width; entry.height = dimensions.height;
           if ((job.options.orientation === "scene" || job.options.repair === "auto") && !entry.analysis) {
             entry.cloudInFlight = true; job.analysisAttempts++;
@@ -338,7 +357,7 @@ export class PhotoJobStore {
         await copyFile(base, `${target}.tmp`);
         await copyFile(this.preview(job.id, entry.id, "after"), `${preview}.tmp`);
       } else {
-        dimensions = await localPhoto({ input: base, output: `${target}.tmp`, options: job.options, manual: edit, analysis: await this.cachedColorAnalysis(job, entry) });
+        dimensions = await this.renderPhoto({ input: base, output: `${target}.tmp`, options: job.options, manual: edit, analysis: await this.cachedColorAnalysis(job, entry) });
         await sharp(`${target}.tmp`).resize(1000, 850, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toFile(`${preview}.tmp`);
       }
       await rename(`${target}.tmp`, target);
@@ -383,13 +402,13 @@ export class PhotoJobStore {
     // Reuse the edit validator for normalized, unrotated coordinates.
     const spot = manualPhotoEdit({ ...defaultManualEdit(), neutral: neutral ?? null }).neutral;
     // The retained batch raster is immutable, so review can load while other photos process.
-    // Serialize measurements per job to bound memory and keep cache writes consistent.
+    // Serialize measurements per job to keep cache writes consistent; CPU work also uses the global slot.
     const result = (this.measurements.get(id) || Promise.resolve()).then(async () => {
       const analysis = await this.cachedColorAnalysis(job, entry);
       if (analysis && !spot) return { analysis, neutral: null };
-      const result = await photoWorker<Awaited<ReturnType<typeof measureLocalPhoto>>>({
+      const result = await workExclusively(() => photoWorker<Awaited<ReturnType<typeof measureLocalPhoto>>>({
         input: this.output(job, { ...entry, editVersion: 0 }), measure: true, analysis, neutral: spot,
-      });
+      }));
       if (!analysis) {
         const file = this.colorAnalysisPath(job, entry);
         await writeFile(`${file}.tmp`, JSON.stringify(result.analysis));

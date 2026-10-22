@@ -9,7 +9,7 @@ import { ZipFile as ZipWriter } from "yazl";
 import { RandomAccessReader, fromRandomAccessReader, type ZipFile as ZipReader } from "yauzl";
 import { unzipSync } from "fflate";
 import sharp from "sharp";
-import { PhotoJobStore, MAX_ARCHIVE_BYTES } from "../server/photoJobs.ts";
+import { PhotoJobStore, MAX_ARCHIVE_BYTES, type LocalPhotoRender } from "../server/photoJobs.ts";
 import { archiveEntries, extractPhoto, photoDownload } from "../server/photoArchive.ts";
 import { handlePhotoApi } from "../server/photoApi.ts";
 import { CloudPhotoError, photoCloudRequest, parsePhotoAssessment } from "../server/photoCloud.ts";
@@ -60,6 +60,69 @@ async function finished(store: PhotoJobStore, job: PhotoRepairJob) {
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
   assert.fail("job must settle and release its mutation lock");
+}
+
+/** Lets queued promise work run. */
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+/** Stands in for the CPU worker: writes a small real image, records overlap, and can hold renders at a gate. */
+function renderProbe() {
+  const gates: (() => void)[] = [];
+  const arrivals: (() => void)[] = [];
+  const probe = {
+    running: 0, peak: 0, calls: 0, hold: false, failNext: false, jobs: [] as string[],
+    /** Resolves once `count` renders have begun. */
+    started(count: number) {
+      return new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Render ${count} did not start`)), 5_000);
+        const check = () => {
+          if (probe.calls >= count) { clearTimeout(timeout); resolve(); }
+          else arrivals.push(check);
+        };
+        check();
+      });
+    },
+    release() { probe.hold = false; for (const open of gates.splice(0)) open(); },
+    render: (async (task) => {
+      probe.calls++; probe.running++; probe.peak = Math.max(probe.peak, probe.running);
+      probe.jobs.push(path.basename(path.dirname(task.output)));
+      const fail = probe.failNext; probe.failNext = false;
+      for (const check of arrivals.splice(0)) check();
+      try {
+        if (probe.hold) await new Promise<void>((resolve) => gates.push(resolve));
+        if (fail) throw new Error("render failed");
+        const info = await sharp(task.input).toFormat(task.options.format).toFile(task.output);
+        return { width: info.width, height: info.height };
+      } finally { probe.running--; }
+    }) as LocalPhotoRender,
+  };
+  return probe;
+}
+
+async function processed(store: PhotoJobStore, photo: Buffer, name: string) {
+  const job = await loaded(store, [[name, photo]]);
+  await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(store, job);
+  assert.equal(job.state, "complete");
+  return job;
+}
+
+function brighter() { const edit = defaultManualEdit(); edit.adjustments.brightness = 10; return edit; }
+
+async function renderFixture() {
+  const { root, photo } = await fixture();
+  const probe = renderProbe();
+  const store = new PhotoJobStore(root, undefined, probe.render);
+  const pending: Promise<unknown>[] = [];
+  return {
+    root, photo, probe, store,
+    track<T>(task: Promise<T>) { pending.push(task.catch(() => {})); return task; },
+    async cleanup() {
+      probe.release();
+      await Promise.all(pending);
+      await Promise.all([...store.jobs.values()].map((job) => finished(store, job)));
+      await rm(root, { recursive: true, force: true });
+    },
+  };
 }
 
 test("safe edited paths preserve folders and resolve case-insensitive collisions", () => {
@@ -336,6 +399,123 @@ test("failed first cloud assessments and repairs allow CPU fallback using the sa
     if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey;
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("manual edits on different jobs render one at a time and both finish", async () => {
+  const { photo, probe, store, track, cleanup } = await renderFixture();
+  try {
+    const first = await processed(store, photo, "a.jpg");
+    const second = await processed(store, photo, "b.jpg");
+    probe.hold = true;
+    const calls = probe.calls;
+    const editing = [track(store.edit(first.id, 0, brighter(), 0))];
+    await probe.started(calls + 1);
+    editing.push(track(store.edit(second.id, 0, brighter(), 0)));
+    await turn();
+    assert.equal(probe.running, 1, "the second job's edit must wait for the render slot");
+    assert.equal(probe.calls, calls + 1);
+    probe.release();
+    await Promise.all(editing);
+    assert.equal(probe.peak, 1);
+    assert.equal(first.entries[0].editVersion, 1); assert.equal(second.entries[0].editVersion, 1);
+  } finally { await cleanup(); }
+});
+
+test("a manual edit queues behind a batch render and runs before the batch's next photo", async () => {
+  const { photo, probe, store, track, cleanup } = await renderFixture();
+  try {
+    const done = await processed(store, photo, "a.jpg");
+    const batch = await loaded(store, [["b.jpg", photo], ["c.jpg", photo]]);
+    probe.hold = true;
+    const calls = probe.calls;
+    await store.start(batch.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
+    await probe.started(calls + 1);
+    await assert.rejects(store.start(done.id, DEFAULT_REPAIR_OPTIONS, "all", false, false), /Another photo job/, "only one batch runs at a time");
+    const editing = track(store.edit(done.id, 0, brighter(), 0));
+    await turn();
+    assert.equal(probe.running, 1, "the edit must wait for the batch render");
+    probe.release();
+    await editing; await finished(store, batch);
+    assert.equal(probe.peak, 1);
+    assert.deepEqual(probe.jobs.slice(calls), [batch.id, done.id, batch.id], "the slot is released between batch photos, in arrival order");
+    assert.equal(batch.state, "complete"); assert.equal(done.entries[0].editVersion, 1);
+  } finally { await cleanup(); }
+});
+
+test("a batch can start while another job is being edited, and its render waits for the slot", async () => {
+  const { photo, probe, store, track, cleanup } = await renderFixture();
+  try {
+    const edited = await processed(store, photo, "a.jpg");
+    const batch = await loaded(store, [["b.jpg", photo]]);
+    probe.hold = true;
+    const calls = probe.calls;
+    const editing = track(store.edit(edited.id, 0, brighter(), 0));
+    await probe.started(calls + 1);
+    await store.start(batch.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
+    await assert.rejects(store.start(edited.id, DEFAULT_REPAIR_OPTIONS, "all", false, false), /Pause/, "the edited job keeps its own lock");
+    // The batch reaches the slot after archive I/O; give it time to try. A correct limiter never lets it in early.
+    const deadline = Date.now() + 5_000;
+    while (batch.entries[0].status !== "processing" && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(probe.calls, calls + 1, "the batch render must wait for the edit");
+    probe.release();
+    await editing; await finished(store, batch);
+    assert.equal(probe.peak, 1);
+    assert.equal(batch.state, "complete"); assert.equal(edited.entries[0].editVersion, 1);
+  } finally { await cleanup(); }
+});
+
+test("a failed render releases the slot to the next queued edit", async () => {
+  const { photo, probe, store, track, cleanup } = await renderFixture();
+  try {
+    const first = await processed(store, photo, "a.jpg");
+    const second = await processed(store, photo, "b.jpg");
+    const previous = JSON.stringify(first.entries[0]);
+    probe.hold = true; probe.failNext = true;
+    const calls = probe.calls;
+    const failing = track(store.edit(first.id, 0, brighter(), 0));
+    await probe.started(calls + 1);
+    const waiting = track(store.edit(second.id, 0, brighter(), 0));
+    await turn();
+    assert.equal(probe.running, 1);
+    probe.release();
+    await assert.rejects(failing, /render failed/);
+    await waiting;
+    assert.equal(second.entries[0].editVersion, 1);
+    assert.equal(JSON.stringify(first.entries[0]), previous, "a failed render leaves the saved result selected");
+    await store.edit(first.id, 0, brighter(), 0);
+    assert.equal(first.entries[0].editVersion, 1);
+    assert.equal(probe.peak, 1);
+  } finally { await cleanup(); }
+});
+
+test("review measurements in another store wait for renders while cached analysis stays available", async () => {
+  const { root, photo, probe, store, track, cleanup } = await renderFixture();
+  try {
+    const edited = await processed(store, photo, "edit.jpg");
+    const measured = await processed(store, photo, "measure.jpg");
+    const uncached = await processed(store, photo, "uncached.jpg");
+    const review = new PhotoJobStore(root);
+    const cached = await review.measure(measured.id, 0, null);
+    probe.hold = true;
+    const calls = probe.calls;
+    const editing = track(store.edit(edited.id, 0, brighter(), 0));
+    await probe.started(calls + 1);
+    assert.deepEqual(await review.measure(measured.id, 0, null), cached, "reading cached analysis does not acquire a CPU slot");
+    let sampled = false, analyzed = false;
+    const sampling = track(review.measure(measured.id, 0, { x: 0.5, y: 0.5 }).then((value) => { sampled = true; return value; }));
+    const analyzing = track(review.measure(uncached.id, 0, null).then((value) => { analyzed = true; return value; }));
+    // The render gate remains closed while real measurement workers would otherwise finish these tiny images.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(sampled, false, "even with cached analysis, a full-resolution gray sample must wait for the render");
+    assert.equal(analyzed, false, "uncached full-resolution analysis must also wait for the render");
+    probe.release();
+    const [sample, analysis] = await Promise.all([sampling, analyzing, editing]);
+    assert.deepEqual(sample.analysis, cached.analysis);
+    const full = await sharp(review.output(measured, measured.entries[0])).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    assert.deepEqual(sample.neutral, sampleSpot({ data: full.data, width: full.info.width, height: full.info.height }, { x: 0.5, y: 0.5 }));
+    assert.deepEqual(analysis, cached);
+  } finally { await cleanup(); }
 });
 
 test("cloud damage selection, uncertain orientation, hard repair limit and cached assessment on resume", async () => {

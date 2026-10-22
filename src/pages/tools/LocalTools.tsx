@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { formatJson } from "../../lib/safeJson";
 
 export function QrTool() {
   const [text, setText] = useState("https://localhost:5173");
@@ -81,8 +82,7 @@ export function JsonTool() {
 
   function format(minified = false) {
     try {
-      const parsed = JSON.parse(input);
-      setOutput(JSON.stringify(parsed, null, minified ? 0 : 2));
+      setOutput(formatJson(input, minified));
       setError("");
     } catch (err) {
       setOutput("");

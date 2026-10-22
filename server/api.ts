@@ -5,6 +5,7 @@ import { Resolver, lookup as dnsLookup, reverse as dnsReverse, resolve4, resolve
 import whoiser from "whoiser";
 import { handlePhotoApi } from "./photoApi.ts";
 import { createHealthRedirectGuard, fetchStatusResponse, HealthRedirectError, type RedirectGuard } from "./httpRedirects.ts";
+import { assertJsonPost, assertSameOrigin } from "./requestPolicy.ts";
 import {
   compareDnsResolvers,
   normalizeDnsHostname,
@@ -454,7 +455,7 @@ export function siteFileTarget(raw: string) {
       throw new Error("Enter a domain");
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Enter a domain");
-    hostname = url.hostname;
+    hostname = url.hostname.replace(/^\[|\]$/g, "");
     port = url.port;
   } else {
     const bare = trimmed.replace(/\/.*$/, "").replace(/^\.+|\.+$/g, "");
@@ -473,15 +474,23 @@ export function siteFileTarget(raw: string) {
 
   hostname = hostname.toLowerCase();
   if (!hostname || /[\s/@\\]/.test(hostname)) throw new Error("Enter a domain");
+  if (hostname.includes(":")) {
+    if (isIP(hostname) !== 6) throw new Error("Enter a valid IPv6 address");
+    hostname = new URL(`https://[${hostname}]`).hostname.slice(1, -1);
+  } else if (/[\[\]]/.test(hostname)) throw new Error("Enter a domain");
   const portNumber = port === "" ? 443 : Number(port);
   if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) throw new Error("Enter a domain");
   const literal = hostname.includes(":") ? `[${hostname}]` : hostname;
   return { host: hostname, origin: `https://${literal}:${portNumber}` };
 }
 
-function sameSiteHost(originHost: string, nextHost: string) {
-  const left = originHost.toLowerCase();
-  const right = nextHost.toLowerCase();
+export function sameSiteHost(originHost: string, nextHost: string) {
+  const normalize = (host: string) => {
+    const bare = host.toLowerCase().replace(/^\[|\]$/g, "");
+    return isIP(bare) === 6 ? new URL(`https://[${bare}]`).hostname : bare;
+  };
+  const left = normalize(originHost);
+  const right = normalize(nextHost);
   if (left === right) return true;
   const bare = (host: string) => host.startsWith("www.") ? host.slice(4) : host;
   return bare(left) === bare(right);
@@ -648,6 +657,8 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return false;
+    assertSameOrigin(req);
+    assertJsonPost(req);
 
     if (req.method === "OPTIONS") {
       res.statusCode = 204;

@@ -1,3 +1,5 @@
+import { parseJsonSafely } from "./safeJson.ts";
+
 export const DEFAULT_JSON_DIFF_MAX_BYTES = 1_000_000;
 export const DEFAULT_JSON_DIFF_MAX_CHANGES = 2_000;
 export const DEFAULT_JSON_DIFF_MAX_DEPTH = 256;
@@ -122,7 +124,7 @@ function assertSize(text: string, label: string, maxBytes: number) {
 function parseDocument(text: string, label: string): unknown {
   if (!text.trim()) throw new Error(`${label} JSON is empty`);
   try {
-    return JSON.parse(text) as unknown;
+    return parseJsonSafely(text);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid JSON";
     const position = /position\s+(\d+)/i.exec(message);
