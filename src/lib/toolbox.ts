@@ -86,18 +86,14 @@ export function encodeHtml(text: string) {
 }
 
 export function decodeHtml(text: string) {
-  return text
-    .replace(/&#(\d+);/g, (_, digits: string) => safeCodePoint(Number(digits)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, digits: string) => safeCodePoint(parseInt(digits, 16)))
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+  return text.replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g,
+    (_, decimal: string | undefined, hex: string | undefined, name: string | undefined) =>
+      name ? named[name] : safeCodePoint(decimal === undefined ? parseInt(hex!, 16) : Number(decimal)));
 }
 
 function safeCodePoint(value: number) {
-  if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return "";
+  if (!Number.isInteger(value) || value <= 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) return "\ufffd";
   return String.fromCodePoint(value);
 }
 

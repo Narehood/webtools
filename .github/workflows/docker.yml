@@ -15,6 +15,10 @@ env:
 jobs:
   docker:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('container-pr-{0}', github.event.pull_request.number) || 'container-publish-ghcr-narehood-webtools' }}
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
       packages: write
@@ -75,14 +79,30 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "publish_version=$publish_version" >> "$GITHUB_OUTPUT"
 
+          sha_tag="sha-${GITHUB_SHA:0:7}"
+          publish_sha=false
+          if [[ "$ref" == "refs/heads/main" && "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            if docker buildx imagetools inspect "ghcr.io/narehood/webtools:${sha_tag}" >/tmp/inspect.out 2>/tmp/inspect.err; then
+              echo "${sha_tag} already exists; leaving that tag in place"
+            elif grep -Eiq 'not found|manifest unknown|name unknown|no such manifest' /tmp/inspect.err; then
+              publish_sha=true
+            else
+              cat /tmp/inspect.err >&2
+              exit 1
+            fi
+          fi
+          echo "sha_tag=$sha_tag" >> "$GITHUB_OUTPUT"
+          echo "publish_sha=$publish_sha" >> "$GITHUB_OUTPUT"
+
       - name: Image tags
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/narehood/webtools
+          flavor: latest=false
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=sha-
+            type=raw,value=${{ steps.package.outputs.sha_tag }},enable=${{ steps.package.outputs.publish_sha == 'true' }}
             type=raw,value=${{ steps.package.outputs.version }},enable=${{ steps.package.outputs.publish_version == 'true' }}
             type=ref,event=tag,enable=${{ steps.package.outputs.publish_version == 'true' }}
             type=semver,pattern={{version}},enable=${{ steps.package.outputs.publish_version == 'true' }}
@@ -94,7 +114,7 @@ jobs:
         with:
           context: .
           pull: true
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' && steps.meta.outputs.tags != '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

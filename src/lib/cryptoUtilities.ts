@@ -11,6 +11,7 @@ import {
 } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import bcrypt from "bcryptjs";
+import { assertBcryptPassword } from "./bcryptPassword.ts";
 import {
   base64ToBytes,
   boundedText,
@@ -117,10 +118,7 @@ export async function bcryptAction(
   hash: string,
   compare: boolean,
 ) {
-  if (new TextEncoder().encode(password).length > 72)
-    throw new Error(
-      "Bcrypt supports at most 72 UTF-8 bytes; longer input would be truncated.",
-    );
+  assertBcryptPassword(password);
   if (compare) {
     if (
       !/^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$/.test(hash) ||

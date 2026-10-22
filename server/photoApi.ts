@@ -5,6 +5,7 @@ import { stat } from "node:fs/promises";
 import { photoJobs, photoJson, CHUNK_BYTES, MAX_ARCHIVE_BYTES, type PhotoJobStore } from "./photoJobs.ts";
 import { MAX_PHOTOS, photoDownload } from "./photoArchive.ts";
 import { imageModel, visionModel } from "./photoCloud.ts";
+import { assertSameOrigin } from "./requestPolicy.ts";
 
 const BASE = "/api/photo-repair";
 
@@ -19,9 +20,7 @@ export async function handlePhotoApi(req: IncomingMessage, res: ServerResponse, 
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname !== BASE && !url.pathname.startsWith(`${BASE}/`)) return false;
     // Commands and uploads must originate from this web UI, including when it is accessed over a LAN.
-    const origin = req.headers.origin;
-    if (origin && new URL(origin).host !== req.headers.host) throw new Error("Use the photo repair tool on this server to manage jobs");
-    if (req.headers["sec-fetch-site"] === "cross-site") throw new Error("Cross-site photo job access is not allowed");
+    assertSameOrigin(req);
     const parts = url.pathname.slice(BASE.length).split("/").filter(Boolean);
     if (parts[0] === "config" && req.method === "GET") {
       send(res, 200, { cloudAvailable: Boolean(process.env.OPENAI_API_KEY), maxArchiveBytes: MAX_ARCHIVE_BYTES,

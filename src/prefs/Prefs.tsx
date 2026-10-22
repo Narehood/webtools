@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { getTool } from "../data/tools";
+import { accentInk } from "../lib/contrast";
+export { accentInk } from "../lib/contrast";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -98,16 +100,6 @@ function hexToRgba(hex: string, alpha: number) {
   const green = parseInt(value.slice(2, 4), 16);
   const blue = parseInt(value.slice(4, 6), 16);
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
-export function accentInk(hex: string) {
-  const value = hex.replace("#", "");
-  const channel = (start: number) => {
-    const piece = parseInt(value.slice(start, start + 2), 16) / 255;
-    return piece <= 0.03928 ? piece / 12.92 : ((piece + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
-  return luminance > 0.45 ? "#1a1612" : "#ffffff";
 }
 
 export function applyPrefs(theme: ThemeMode, accent: string) {

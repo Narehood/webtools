@@ -95,6 +95,45 @@ test('API rejects non-object and oversized JSON bodies', async () => {
   assert.equal((await fetch(base + '/api/health')).status, 200);
 });
 
+test('API blocks cross-origin and non-JSON commands before opening upstream connections', async () => {
+  let connections = 0;
+  const upstream = createServer((_req, res) => res.writeHead(200).end());
+  upstream.on('connection', () => { connections++; });
+  const target = await listen(upstream);
+  try {
+    const rejected = [
+      { 'Content-Type': 'text/plain', Origin: 'http://untrusted.example', 'Sec-Fetch-Site': 'cross-site' },
+      { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:1', 'Sec-Fetch-Site': 'same-site' },
+      { 'Content-Type': 'application/json', Origin: 'null' },
+      { 'Content-Type': 'application/x-www-form-urlencoded' },
+      { 'Content-Type': 'application/json', Origin: 'http://untrusted.example' },
+    ];
+    for (const headers of rejected) {
+      const response = await fetch(base + '/api/status', { method: 'POST', headers, body: JSON.stringify({ url: target }) });
+      assert.equal(response.status, 400);
+      assert.ok((await response.json()).error);
+    }
+    assert.equal(connections, 0);
+    for (const headers of [
+      { 'Content-Type': 'application/json', Origin: base, 'Sec-Fetch-Site': 'same-origin' },
+      { 'Content-Type': 'application/json; charset=utf-8' },
+      { 'Content-Type': 'application/json', Origin: 'https://public-proxy.example', 'Sec-Fetch-Site': 'same-origin' },
+      { 'Content-Type': 'application/json', Origin: base },
+    ]) {
+      const response = await fetch(base + '/api/status', { method: 'POST', headers, body: JSON.stringify({ url: target }) });
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).status, 200);
+    }
+    assert.ok(connections > 0);
+    const options = await fetch(base + '/api/status', { method: 'OPTIONS' });
+    assert.equal(options.status, 204);
+    assert.equal(options.headers.get('Access-Control-Allow-Origin'), null);
+    const photo = await fetch(base + '/api/photo-repair/config', { headers: { 'Sec-Fetch-Site': 'same-site', Origin: 'http://127.0.0.1:1' } });
+    assert.equal(photo.status, 400);
+    await photo.arrayBuffer();
+  } finally { await close(upstream); }
+});
+
 test('header traces cancel streaming bodies at every redirect hop', async () => {
   let closed = 0;
   let allClosed: () => void;

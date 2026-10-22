@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { csvToJson, jsonToCsv } from "../../lib/text";
+import { convertData } from "../../lib/dataConversion";
 import { explainCron, nextCronRuns } from "../../lib/cron";
 import { CopyButton } from "../../components/CopyButton";
 import { useRegex } from "../../hooks/useRegex";
@@ -13,10 +12,7 @@ export function DataTool() {
 
   function convert() {
     try {
-      if (mode === "csv-json") setOutput(JSON.stringify(csvToJson(input), null, 2));
-      else if (mode === "json-csv") setOutput(jsonToCsv(JSON.parse(input)));
-      else if (mode === "yaml-json") setOutput(JSON.stringify(parseYaml(input), null, 2));
-      else setOutput(stringifyYaml(JSON.parse(input)));
+      setOutput(convertData(input, mode));
       setError("");
     } catch (err) {
       setOutput("");
@@ -29,7 +25,7 @@ export function DataTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>CSV / YAML / JSON</h1>
-        <p className="lede">Move between tabular and config formats without a remote parser.</p>
+        <p className="lede">Move between tabular and config formats without a remote parser. Quote integers outside the safe range to keep them exact; decimals use standard floating-point precision.</p>
       </header>
       <div className="workspace">
         <section className="panel">
