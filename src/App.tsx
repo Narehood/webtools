@@ -63,6 +63,7 @@ const FaviconTool = lazy(() => import("./pages/tools/FileImageTools").then((modu
 const DomainHealthTool = lazy(() => import("./pages/tools/DomainHealthTool").then((module) => ({ default: module.DomainHealthTool })));
 const DockerComposeTool = lazy(() => import("./pages/tools/DockerComposeTool").then((module) => ({ default: module.DockerComposeTool })));
 const DateCalculatorTool = lazy(() => import("./pages/tools/DateCalculatorTool").then((module) => ({ default: module.DateCalculatorTool })));
+const InterestCalculatorTool = lazy(() => import("./pages/tools/InterestCalculatorTool").then((module) => ({ default: module.InterestCalculatorTool })));
 const PhotoColorTool = lazy(() => import("./pages/tools/PhotoColorTool").then((module) => ({ default: module.PhotoColorTool })));
 const PhotoRepairTool = lazy(() => import("./pages/tools/PhotoRepairTool").then((module) => ({ default: module.PhotoRepairTool })));
 
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/domain-health" element={<DomainHealthTool />} />
           <Route path="/docker-compose" element={<DockerComposeTool />} />
           <Route path="/date-calculator" element={<DateCalculatorTool />} />
+          <Route path="/interest-calculator" element={<InterestCalculatorTool />} />
           <Route path="/photo-color" element={<PhotoColorTool />} />
           <Route path="/photo-repair" element={<PhotoRepairTool />} />
           <Route path="/background" element={<BackgroundTool />} />

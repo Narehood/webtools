@@ -74,6 +74,15 @@ export const tools: Tool[] = [
     tileInk: "#b9a3d4",
   },
   {
+    slug: "interest-calculator",
+    name: "Interest calculator",
+    blurb: "Project simple or compound interest, recurring savings, and loan payments. Compare rates and export schedules.",
+    category: "calculators",
+    local: true,
+    tile: "rgba(143,190,154,.16)",
+    tileInk: "#8fbe9a",
+  },
+  {
     slug: "image-palette",
     name: "Image color picker",
     blurb: "Sample pixels and extract a color palette from an image, with copyable HEX, RGB, and HSL.",
