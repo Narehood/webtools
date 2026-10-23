@@ -8,7 +8,7 @@ Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and te
 
 ## IT-Tools comparison and additions
 
-The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page across **47 new comparison pages**. Seven accompanying tools—QR reader, PDF merge/split, image color picker, favicon generator, domain health, Docker run to Compose, and date calculator—bring the complete catalog to **106 tools**. Bulk photo repair adds another page, for **107 tools**.
+The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page across **47 new comparison pages**. Seven accompanying tools—QR reader, PDF merge/split, image color picker, favicon generator, domain health, Docker run to Compose, and date calculator—bring the complete catalog to **106 tools**. Bulk photo repair and the interest calculator add two more pages, for **108 tools**.
 
 | Area | New tools |
 | --- | --- |
@@ -294,6 +294,12 @@ What is X% of Y, what percent one number is of another, and the percent change b
 
 **Aspect ratio**  
 Simplify a width and height, then scale either side and keep the ratio.
+
+**Interest calculator**
+
+Open `/interest-calculator` under **Calculators** for compound savings, simple interest, and fixed-rate loan repayments. Choose a nominal annual rate or APY, daily through annual or continuous compounding, years/months/days, and a 365- or 360-day basis. Optional recurring deposits have their own frequency, beginning/end timing, and annual increase. Compare a second rate and estimate tax deducted at maturity plus inflation-adjusted purchasing power. Loan mode supports payment frequency and extra principal payments, with interest and time saved. Eight display currencies, live charts, monthly/yearly savings tables, a full repayment schedule, copyable summaries, examples, and CSV downloads run entirely in the browser. Currency selection does not perform exchange-rate conversion. The expandable calculation notes explain fractional-period growth, contribution boundaries, and rounding assumptions.
+
+Loan schedules allocate cumulative rounding to the selected currency's precision so displayed payments equal principal plus interest and the totals match the CSV. Displayed payments can vary slightly; the underlying projection uses unrounded payments.
 
 **Billable hours**
 

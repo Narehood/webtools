@@ -11,6 +11,12 @@ export function Icon({ name }: { name: string }) {
   };
 
   switch (name) {
+    case "interest-calculator":
+      return (
+        <svg {...common}>
+          <path d="M4 19h16M6 15V11M11 15V8M16 15V5M5 8l5-3 4 1 5-3" />
+        </svg>
+      );
     case "background":
       return (
         <svg {...common}>
