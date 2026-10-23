@@ -65,6 +65,7 @@ export type LoanRow = {
   totalInterest: number;
 };
 export type LoanResult = {
+  principal: number;
   scheduledPayment: number;
   regularPayment: number;
   totalPaid: number;
@@ -180,22 +181,47 @@ export function calculateSavings(input: SavingsInput): SavingsResult {
   };
 }
 
-function amortize(principal: number, rate: number, periods: number, payment: number, frequency: number): LoanRow[] {
+function amortize(principal: number, rate: number, periods: number, scheduledPayment: number, frequency: number, extraPayment = 0): LoanRow[] {
   const rows: LoanRow[] = [];
+  const payment = scheduledPayment + extraPayment;
+  const logGrowth = Math.log1p(rate);
+  let payoffPeriods = periods;
+  if (extraPayment > 0) {
+    if (rate === 0) payoffPeriods = Math.min(periods, principal / payment);
+    else {
+      // payment - principal * rate = extra + scheduledPayment * (1 + rate)^-periods.
+      // Sum in log space: neither the tiny principal portion nor a large power is lost.
+      const logDiscountedPayment = Math.log(scheduledPayment) - periods * logGrowth;
+      const logExtra = Math.log(extraPayment);
+      const high = Math.max(logDiscountedPayment, logExtra);
+      const logGap = high + Math.log1p(Math.exp(Math.min(logDiscountedPayment, logExtra) - high));
+      const logRatio = Math.log(principal) + Math.log(rate) - logGap;
+      const logPayoff = logRatio > 0 ? logRatio + Math.log1p(Math.exp(-logRatio)) : Math.log1p(Math.exp(logRatio));
+      payoffPeriods = Math.min(periods, logPayoff / logGrowth);
+    }
+  }
+  const count = Math.max(1, Math.ceil(payoffPeriods));
   let balance = principal;
   let totalPaid = 0;
   let totalInterest = 0;
-  for (let period = 1; period <= periods; period++) {
-    const interest = balance * rate;
-    // Clear rounding residue on the final scheduled payment.
-    const paid = period === periods ? balance + interest : Math.min(payment, balance + interest);
-    const principalPaid = paid - interest;
-    if (principalPaid <= 0) throw new Error("The payment is too small to reduce the loan balance.");
-    balance = Math.max(0, balance - principalPaid);
-    totalPaid = money(totalPaid + paid);
-    totalInterest = money(totalInterest + interest);
+  let interestCorrection = 0;
+  for (let period = 1; period <= count; period++) {
+    const previousBalance = balance;
+    const remaining = Math.max(0, payoffPeriods - period);
+    // Present value of remaining payments avoids amplifying float error for long terms.
+    balance = period === count ? 0 : Math.min(previousBalance, Math.max(0, rate === 0
+      ? payment * remaining : payment * (-Math.expm1(-remaining * logGrowth) / rate)));
+    const principalPaid = previousBalance - balance;
+    const paid = period === count
+      ? Math.max(principalPaid, Math.min(payment, previousBalance * (1 + rate))) : payment;
+    const interest = previousBalance * rate;
+    // Compensated summation keeps tiny rounding errors from accumulating on long loans.
+    const adjustedInterest = interest - interestCorrection;
+    const nextInterest = totalInterest + adjustedInterest;
+    interestCorrection = (nextInterest - totalInterest) - adjustedInterest;
+    totalInterest = money(nextInterest);
+    totalPaid = money(principal - balance + totalInterest);
     rows.push({ period, years: period / frequency, payment: paid, principal: principalPaid, interest, balance, totalPaid, totalInterest });
-    if (balance <= 0) break;
   }
   return rows;
 }
@@ -219,15 +245,75 @@ export function calculateLoan(input: LoanInput): LoanResult {
     : input.principal * rate / -Math.expm1(-periods * Math.log1p(rate)));
   const baseline = amortize(input.principal, rate, periods, scheduledPayment, frequency);
   const rows = input.extraPayment > 0
-    ? amortize(input.principal, rate, periods, scheduledPayment + input.extraPayment, frequency)
+    ? amortize(input.principal, rate, periods, scheduledPayment, frequency, input.extraPayment)
     : baseline;
   const last = rows.at(-1)!;
   return {
+    principal: input.principal,
     scheduledPayment, regularPayment: scheduledPayment + input.extraPayment,
     totalPaid: last.totalPaid, interest: last.totalInterest, paymentCount: rows.length,
     years: last.years, periodsSaved: baseline.length - rows.length,
     interestSaved: Math.max(0, baseline.at(-1)!.totalInterest - last.totalInterest), rows,
   };
+}
+
+export type LoanReportRow = {
+  period: number;
+  years: number;
+  payment: bigint;
+  principal: bigint;
+  interest: bigint;
+  balance: bigint;
+};
+
+/** Round the decimal representation half up, without losing large integer minor units. */
+function currencyUnits(value: number, digits: number): bigint {
+  const [mantissa, power = "0"] = value.toString().split("e");
+  const [whole, fraction = ""] = mantissa.split(".");
+  const coefficient = BigInt(whole + fraction);
+  const exponent = Number(power) - fraction.length + digits;
+  if (exponent >= 0) return coefficient * 10n ** BigInt(exponent);
+  const divisor = 10n ** BigInt(-exponent);
+  return (coefficient + divisor / 2n) / divisor;
+}
+
+/** Allocate cumulative rounding across rows; the table and CSV share these exact amounts. */
+export function loanReport(result: LoanResult, digits: number) {
+  if (!Number.isInteger(digits) || digits < 0 || digits > 3) throw new Error("Currency precision must be between 0 and 3 decimal places.");
+  const principal = currencyUnits(result.principal, digits);
+  let paidPrincipal = 0n;
+  let paidInterest = 0n;
+  const rows: LoanReportRow[] = result.rows.map((row, index) => {
+    const final = index === result.rows.length - 1;
+    const cumulativePrincipal = final ? principal : currencyUnits(Math.max(0, result.principal - row.balance), digits);
+    const cumulativeInterest = currencyUnits(row.totalInterest, digits);
+    const principalPayment = cumulativePrincipal - paidPrincipal;
+    const interestPayment = cumulativeInterest - paidInterest;
+    paidPrincipal = cumulativePrincipal;
+    paidInterest = cumulativeInterest;
+    return {
+      period: row.period, years: row.years, principal: principalPayment, interest: interestPayment,
+      payment: principalPayment + interestPayment, balance: principal - cumulativePrincipal,
+    };
+  });
+  return {
+    principal, rows, scheduledPayment: currencyUnits(result.scheduledPayment, digits),
+    regularPayment: currencyUnits(result.regularPayment, digits),
+    totalPaid: principal + paidInterest, interest: paidInterest,
+    interestSaved: currencyUnits(result.interest + result.interestSaved, digits) - paidInterest,
+  };
+}
+
+export function currencyUnitsDecimal(value: bigint, digits: number): string {
+  const scale = 10n ** BigInt(digits);
+  return digits === 0 ? String(value) : `${value / scale}.${(value % scale).toString().padStart(digits, "0")}`;
+}
+
+export function formatCurrencyUnits(value: bigint, formatter: Intl.NumberFormat): string {
+  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 0;
+  const scale = 10n ** BigInt(digits);
+  return formatter.formatToParts(value / scale).map((part) => part.type === "fraction"
+    ? (value % scale).toString().padStart(digits, "0") : part.value).join("");
 }
 
 /** Reporting only: grouping never changes the underlying projection. */

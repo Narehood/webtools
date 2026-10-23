@@ -2,7 +2,8 @@ import { useId, useMemo, useState } from "react";
 import { CopyButton } from "../../components/CopyButton";
 import { saveFile, ToolFrame } from "../../components/Utility";
 import {
-  calculateLoan, calculateSavings, interestCsv, interestFrequencies, savingsSchedule,
+  calculateLoan, calculateSavings, currencyUnitsDecimal, formatCurrencyUnits, interestCsv,
+  interestFrequencies, loanReport, savingsSchedule,
   type CompoundingFrequency, type DurationUnit, type InterestFrequency, type LoanInput,
   type LoanResult, type SavingsInput, type SavingsResult,
 } from "../../lib/interest";
@@ -99,6 +100,7 @@ export function InterestCalculatorTool() {
   const [page, setPage] = useState(0);
   const moneyFormatter = useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency }), [currency]);
   const money = (value: number) => moneyFormatter.format(value);
+  const loanMoney = (value: bigint) => formatCurrencyUnits(value, moneyFormatter);
   const compactMoney = (value: number) => new Intl.NumberFormat("en-US", {
     style: "currency", currency, notation: "compact", maximumFractionDigits: 1,
   }).format(value);
@@ -142,6 +144,7 @@ export function InterestCalculatorTool() {
   }, [compareEnabled, comparisonRate, calculation.input]);
   const result = calculation.savings;
   const repayment = calculation.loan;
+  const loanDisplay = useMemo(() => repayment ? loanReport(repayment, digits) : undefined, [repayment, digits]);
   const schedule = result ? savingsSchedule(result, grouping) : [];
   const count = repayment?.rows.length ?? schedule.length;
   const pageCount = Math.max(1, Math.ceil(count / 24));
@@ -165,15 +168,15 @@ export function InterestCalculatorTool() {
       `After-tax balance: ${money(result.afterTax)}`, `Purchasing power (${savings.inflationRate}% inflation): ${money(result.purchasingPower)}`] : []),
     ...(comparison.result ? [`At ${comparisonRate}%: ${money(comparison.result.balance)} before tax`] : []),
     "Estimate using constant rates, equal-length periods, and unrounded intermediate amounts. No fees.",
-  ].join("\n") : repayment ? [
-    `Loan repayment estimate (${currency})`, `Loan amount: ${money(Number(loan.principal))}`,
+  ].join("\n") : repayment && loanDisplay ? [
+    `Loan repayment estimate (${currency})`, `Loan amount: ${loanMoney(loanDisplay.principal)}`,
     `Nominal annual interest rate: ${loan.annualRate}%`, `Original term: ${loan.duration} ${loan.durationUnit}`,
-    `Scheduled ${frequencyLabel} payment: ${money(repayment.scheduledPayment)}`,
+    `Scheduled ${frequencyLabel} payment: ${loanMoney(loanDisplay.scheduledPayment)}`,
     `Extra per payment: ${money(Number(loan.extraPayment))}`,
-    `Total paid: ${money(repayment.totalPaid)}`, `Total interest: ${money(repayment.interest)}`,
+    `Total paid: ${loanMoney(loanDisplay.totalPaid)}`, `Total interest: ${loanMoney(loanDisplay.interest)}`,
     `Payoff: ${repayment.paymentCount} payments (${Number(repayment.years.toFixed(3))} years)`,
-    `Interest saved with extra payments: ${money(repayment.interestSaved)}`,
-    "Fixed-rate estimate; interest rate / payments per year. No fees, insurance, or taxes. Intermediate amounts are unrounded.",
+    `Interest saved with extra payments: ${loanMoney(loanDisplay.interestSaved)}`,
+    "Fixed-rate estimate; interest rate / payments per year. No fees, insurance, or taxes. Cumulative rounding is allocated across schedule rows to reconcile payments, principal, and interest.",
   ].join("\n") : "";
 
   function exportSchedule() {
@@ -181,9 +184,9 @@ export function InterestCalculatorTool() {
       saveFile(interestCsv(["Elapsed years", `Money deposited (${currency})`, `Interest earned (${currency})`, `Balance before tax (${currency})`],
         schedule.map((row) => [row.years.toFixed(6), row.deposited.toFixed(digits), row.interest.toFixed(digits), row.balance.toFixed(digits)])),
       `interest-${mode}-${grouping}-${currency}.csv`, "text/csv;charset=utf-8");
-    } else if (repayment) {
+    } else if (loanDisplay) {
       saveFile(interestCsv(["Payment number", "Elapsed years", `Payment (${currency})`, `Principal (${currency})`, `Interest (${currency})`, `Remaining balance (${currency})`],
-        repayment.rows.map((row) => [row.period, row.years.toFixed(6), row.payment.toFixed(digits), row.principal.toFixed(digits), row.interest.toFixed(digits), row.balance.toFixed(digits)])),
+        loanDisplay.rows.map((row) => [row.period, row.years.toFixed(6), ...[row.payment, row.principal, row.interest, row.balance].map((value) => currencyUnitsDecimal(value, digits))])),
       `loan-repayments-${currency}.csv`, "text/csv;charset=utf-8");
     }
   }
@@ -299,15 +302,15 @@ export function InterestCalculatorTool() {
                   <div><span>Balance after tax</span><strong>{money(result.afterTax)}</strong></div>
                   <div><span>Today's purchasing power</span><strong>{money(result.purchasingPower)}</strong></div>
                 </div>}
-              </> : repayment ? <>
-                <div className="interest-total"><span>Scheduled {frequencyLabel} payment</span><strong>{money(repayment.scheduledPayment)}</strong><small>before extra payments</small></div>
+              </> : repayment && loanDisplay ? <>
+                <div className="interest-total"><span>Scheduled {frequencyLabel} payment</span><strong>{loanMoney(loanDisplay.scheduledPayment)}</strong><small>before extra payments; rounding allocated in the schedule</small></div>
                 <div className="stat-grid">
-                  <div className="stat"><span>With your extra payment</span><b>{money(repayment.regularPayment)}</b></div>
-                  <div className="stat"><span>Total interest</span><b>{money(repayment.interest)}</b></div>
-                  <div className="stat"><span>Total repaid</span><b>{money(repayment.totalPaid)}</b></div>
+                  <div className="stat"><span>With your extra payment</span><b>{loanMoney(loanDisplay.regularPayment)}</b></div>
+                  <div className="stat"><span>Total interest</span><b>{loanMoney(loanDisplay.interest)}</b></div>
+                  <div className="stat"><span>Total repaid</span><b>{loanMoney(loanDisplay.totalPaid)}</b></div>
                   <div className="stat"><span>Paid off after</span><b>{repayment.paymentCount.toLocaleString()} payments</b><small>{Number(repayment.years.toFixed(3))} years</small></div>
                 </div>
-                {Number(loan.extraPayment) > 0 && <p className="interest-saved">Extra payments save {money(repayment.interestSaved)} in interest and {repayment.periodsSaved.toLocaleString()} payment periods.</p>}
+                {Number(loan.extraPayment) > 0 && <p className="interest-saved">Extra payments save {loanMoney(loanDisplay.interestSaved)} in interest and {repayment.periodsSaved.toLocaleString()} payment periods.</p>}
               </> : null}
             </div>
             {chartPoints.length > 0 && <ProjectionChart points={chartPoints} money={compactMoney} loan={mode === "loan"} />}
@@ -335,11 +338,11 @@ export function InterestCalculatorTool() {
           </div>}
         </div>
         <div className="interest-table-scroll" tabIndex={0} role="region" aria-label="Scrollable calculation schedule">
-          <table className="interest-table"><caption>{repayment ? "Payments are at the end of each period. The final payment may be smaller." : "Balances before tax. The final row includes any partial reporting period."} Amounts in {currency}.</caption>
+          <table className="interest-table"><caption>{repayment ? "Payments are at the end of each period. Rounding is allocated across rows so payments, principal, interest, and totals add up; displayed payments can vary slightly. The final payment clears the balance." : "Balances before tax. The final row includes any partial reporting period."} Amounts in {currency}.</caption>
             <thead><tr>{(repayment ? ["Payment", "Paid", "Principal", "Interest", "Balance"] : ["Elapsed time", "Deposited", "Interest earned", "Balance"]).map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
-            <tbody>{repayment ? repayment.rows.slice(currentPage * 24, (currentPage + 1) * 24).map((row) => <tr key={row.period}>
-              <th scope="row">{row.period}</th><td>{money(row.payment)}</td><td>{money(row.principal)}</td><td>{money(row.interest)}</td><td>{money(row.balance)}</td>
-            </tr>) : schedule.slice(currentPage * 24, (currentPage + 1) * 24).map((row) => <tr key={row.years}>
+            <tbody>{loanDisplay ? loanDisplay.rows.slice(currentPage * 24, (currentPage + 1) * 24).map((row) => <tr key={row.period} className={row.period === repayment?.paymentCount ? "interest-maturity" : undefined}>
+              <th scope="row">{row.period}</th><td>{loanMoney(row.payment)}</td><td>{loanMoney(row.principal)}</td><td>{loanMoney(row.interest)}</td><td>{loanMoney(row.balance)}</td>
+            </tr>) : schedule.slice(currentPage * 24, (currentPage + 1) * 24).map((row) => <tr key={row.years} className={row === schedule.at(-1) ? "interest-maturity" : undefined}>
               <th scope="row">{row.years === 0 ? "Start" : `${Number((row.years * (grouping === "monthly" ? 12 : 1)).toFixed(3))} ${grouping === "monthly" ? "mo" : "yr"}`}</th>
               <td>{money(row.deposited)}</td><td>{money(row.interest)}</td><td>{money(row.balance)}</td>
             </tr>)}</tbody>
@@ -354,7 +357,8 @@ export function InterestCalculatorTool() {
         {mode === "loan" ? <>
           <p>Payments use a fixed nominal annual rate divided by the number of payments per year. The scheduled payment amortizes the loan over the original term. Extra payments reduce principal after each period's interest, shortening the term; the final payment clears the balance.</p>
           <p>Payment formula: P × i / (1 − (1 + i)<sup>−N</sup>), where i is the rate per payment period and N is the number of payments. At a zero rate, payment = P / N. Weekly and biweekly schedules use 52 and 26 equal periods per year; these are independently amortized schedules, not accelerated half-monthly mortgage plans.</p>
-          <p>Fees, insurance, taxes, lender-specific day counts, and payment-by-payment rounding are excluded. Amounts are rounded only for display; a lender's schedule can differ.</p>
+          <p>The projection uses unrounded payments. For the table, CSV, and totals, cumulative principal and interest are rounded to the currency's minor unit and allocated across payments, with any remaining principal in the final row. This keeps every row and the totals consistent. Displayed payments may vary slightly because of that allocation; it does not change the projected payoff time.</p>
+          <p>Fees, insurance, taxes, lender-specific day counts, and lender payment-by-payment rounding are excluded. A lender's schedule can differ.</p>
         </> : <>
           <p>{mode === "simple" ? "Simple interest = deposited principal × annual rate × elapsed years. Each contribution earns interest only for its remaining time. Interest already earned never earns interest."
             : "Without contributions, compound balance = P × (1 + r/n)^(n × t). Continuous compounding uses P × e^(r × t). An APY uses P × (1 + APY)^t directly, so compounding is not applied twice."}</p>

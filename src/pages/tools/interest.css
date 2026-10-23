@@ -54,7 +54,7 @@
 .interest-table th:first-child { text-align: left; }
 .interest-table thead th { font-size: .75rem; font-weight: 500; color: var(--muted); background: var(--input); }
 .interest-table tbody th { font-weight: 500; }
-.interest-table tbody tr:last-child { background: var(--accent-dim); }
+.interest-table tbody tr.interest-maturity { background: var(--accent-dim); }
 .interest-assumptions p { font-size: .84rem; line-height: 1.75; color: var(--muted); margin: 14px 0 0; }
 .interest-assumptions a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .interest-tool button:focus-visible, .interest-tool summary:focus-visible, .interest-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

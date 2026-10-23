@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  calculateLoan, calculateSavings, interestCsv, interestFrequencies, periodsPerYear,
+  calculateLoan, calculateSavings, currencyUnitsDecimal, formatCurrencyUnits, interestCsv,
+  interestFrequencies, loanReport, periodsPerYear,
   savingsSchedule, type LoanInput, type SavingsInput,
 } from "../src/lib/interest.ts";
 
@@ -169,6 +170,11 @@ test("zero-rate loans, partial-year terms, and weekly payments do not produce Na
   close(weekly.years, 0.5);
   const tinyRate = calculateLoan({ ...loan, annualRate: 1e-8 });
   close(tinyRate.totalPaid, loan.principal, 1e-8);
+  for (const paymentFrequency of ["monthly", "weekly"] as const) {
+    const large = calculateLoan({ ...loan, principal: 1e12, annualRate: 0, duration: 100, paymentFrequency });
+    assert.equal(large.interest, 0);
+    assert.equal(large.totalPaid, large.principal);
+  }
 });
 
 test("extra loan payments save interest, cap the final payment, and pay principal only once", () => {
@@ -183,6 +189,78 @@ test("extra loan payments save interest, cap the final payment, and pay principa
   const immediate = calculateLoan({ ...loan, extraPayment: 1e6 });
   assert.equal(immediate.paymentCount, 1);
   close(immediate.totalPaid, loan.principal * (1 + loan.annualRate / 100 / 12));
+});
+
+test("high-rate long loans retain level payments and amortize all principal without a balloon", () => {
+  for (const [principal, annualRate, duration, totalPaid] of [
+    [100000, 36, 100, 3600000],
+    [200000, 130, 30, 7800000],
+    [200000, 132, 30, 7920000],
+    [100000, 39, 100, 3900000],
+    [100000, 1000, 100, 100000000],
+  ]) {
+    const result = calculateLoan({ ...loan, principal, annualRate, duration });
+    assert.equal(result.paymentCount, duration * 12);
+    assert.equal(result.rows.at(-1)!.balance, 0);
+    assert.ok(Math.abs(result.rows.at(-1)!.payment - result.scheduledPayment) < 0.01);
+    close(result.rows.reduce((sum, row) => sum + row.principal, 0), principal, 1e-12);
+    close(result.totalPaid, totalPaid, 1e-12);
+    for (const row of result.rows) {
+      assert.ok(Number.isFinite(row.balance));
+      assert.ok(row.principal >= 0 && row.interest >= 0 && row.balance >= 0);
+    }
+  }
+});
+
+test("high-rate extra payments remain stable after exponential growth would overflow", () => {
+  for (const extraPayment of [0.01, 100, 1000000]) {
+    const result = calculateLoan({ ...loan, principal: 100000, annualRate: 1000, duration: 100, extraPayment });
+    assert.ok(result.paymentCount < 1200);
+    assert.equal(result.rows.at(-1)!.balance, 0);
+    assert.ok(result.rows.at(-1)!.payment <= result.regularPayment);
+    close(result.rows.reduce((sum, row) => sum + row.principal, 0), 100000, 1e-12);
+    close(result.interest, result.totalPaid - 100000, 1e-12);
+    assert.ok(result.interestSaved > 0);
+  }
+});
+
+test("loan report rows and totals reconcile exactly at zero, two, and three currency decimals", () => {
+  for (const input of [
+    loan, { ...loan, annualRate: 0 }, { ...loan, extraPayment: 100 },
+    { ...loan, principal: 100000, annualRate: 36, duration: 100 },
+    { ...loan, principal: 200000, annualRate: 130, duration: 30 },
+    { ...loan, principal: 100.005 }, { ...loan, principal: 0.01, duration: 100 },
+    { ...loan, principal: 1e12, annualRate: 100, duration: 100 },
+  ]) for (const digits of [0, 2, 3]) {
+    const result = calculateLoan(input);
+    const report = loanReport(result, digits);
+    assert.equal(report.rows.reduce((sum, row) => sum + row.principal, 0n), report.principal);
+    assert.equal(report.rows.reduce((sum, row) => sum + row.interest, 0n), report.interest);
+    assert.equal(report.rows.reduce((sum, row) => sum + row.payment, 0n), report.totalPaid);
+    assert.equal(report.totalPaid, report.principal + report.interest);
+    assert.equal(report.rows.at(-1)!.balance, 0n);
+    let previousBalance = report.principal;
+    for (const row of report.rows) {
+      assert.equal(row.payment, row.principal + row.interest);
+      assert.equal(previousBalance - row.principal, row.balance);
+      assert.ok(row.principal >= 0n && row.interest >= 0n && row.balance >= 0n);
+      previousBalance = row.balance;
+    }
+  }
+  assert.equal(loanReport(calculateLoan({ ...loan, principal: 100.005 }), 2).principal, 10001n);
+});
+
+test("loan table formatting and CSV decimal amounts retain exact minor units above float64 integer precision", () => {
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  const jpy = new Intl.NumberFormat("en-US", { style: "currency", currency: "JPY" });
+  assert.equal(formatCurrencyUnits(35374n, usd), "$353.74");
+  assert.equal(formatCurrencyUnits(13542n, usd), "$135.42");
+  assert.equal(formatCurrencyUnits(12345678901234567n, usd), "$123,456,789,012,345.67");
+  assert.equal(formatCurrencyUnits(25000n, jpy), "\u00a525,000");
+  assert.equal(currencyUnitsDecimal(12345678901234567n, 2), "123456789012345.67");
+  assert.equal(currencyUnitsDecimal(25000n, 0), "25000");
+  assert.equal(currencyUnitsDecimal(1n, 3), "0.001");
+  assert.throws(() => loanReport(calculateLoan(loan), 1.5), /precision/);
 });
 
 test("invalid savings inputs and projections outside the monetary range fail clearly", () => {
