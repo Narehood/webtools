@@ -114,11 +114,11 @@ jobs:
         with:
           context: .
           pull: true
+          # Re-run apk upgrade even when Node's image tag has not changed.
+          no-cache: true
           push: ${{ github.event_name != 'pull_request' && steps.meta.outputs.tags != '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.package.outputs.version }}
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

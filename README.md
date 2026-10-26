@@ -66,11 +66,11 @@ Optional environment variables in the stack UI (leave blank for defaults):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.1.0`, or a `sha-` tag for one build |
+| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.4.3`, or a `sha-` tag for one build |
 | `WEBTOOLS_PORT` | `8080` | Host port |
 | `WEBTOOLS_BIND` | `0.0.0.0` | Set `127.0.0.1` if only a tunnel should reach it |
 
-When you update, turn on **Re-pull image and redeploy** so Portainer fetches a new `latest`. If GHCR is still private, add a `ghcr.io` registry in Portainer with a GitHub token that can read packages.
+When you update, turn on **Re-pull image and redeploy** so Portainer fetches a new `latest`. The pull-only Compose examples also use `pull_policy: always`. If GHCR is still private, add a `ghcr.io` registry in Portainer with a GitHub token that can read packages. Pinned version and `sha-` tags are immutable: select a newly published tag to receive security fixes.
 
 ### Docker
 
@@ -82,7 +82,7 @@ docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/nare
 Build it yourself instead of pulling:
 
 ```bash
-docker build --build-arg VERSION="$(node -p "require('./package.json').version")" -t ghcr.io/narehood/webtools:latest .
+docker build --pull --no-cache --build-arg VERSION="$(node -p "require('./package.json').version")" -t ghcr.io/narehood/webtools:latest .
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
@@ -97,7 +97,20 @@ npm ci
 npm run dev
 ```
 
-Needs Node 24.22.1 or newer in the Node 24 LTS line. `.nvmrc` selects 24.22.1; if you use a different Node manager, install that version before running `npm ci`. This is the [October 2026 security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases). Both Docker stages use `node:24.22.1-alpine`, and CI pulls the base image on every build to pick up Alpine updates. Open [http://localhost:5173](http://localhost:5173).
+Needs Node 24.22.1 or newer in the Node 24 LTS line. `.nvmrc` selects 24.22.1; if you use a different Node manager, install that version before running `npm ci`. This is the [October 2026 security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), which fixes CVE-2026-111497 (Brotli) and updates Node's bundled CA trust store following the eMudhra compromise. Both Docker stages inherit a base that upgrades Alpine packages and requires `ca-certificates>=20261020-r0`. CI pulls the base image and builds without cached layers so OS security updates run on every build. Open [http://localhost:5173](http://localhost:5173).
+
+Run `npm run check:security` to verify the Node version and check that its bundled and effective CA stores exclude the removed roots. On Linux, the check also inspects `/etc/ssl/certs/ca-certificates.crt` when present. The OS policy rejects emSign ECC Root CA - G3 and AAA Certificate Services. Node stores additionally reject the C1 and C3 roots removed by NSS; these remain permitted in the OS bundle, as they do in patched Debian/Ubuntu packages. Container builds require that OS bundle, and containers repeat the check before serving requests; `npm start` also runs it. Custom trust anchors and other software's private CA bundles need their own review.
+
+After publishing the updated image, recreate existing containers; restarting an old container does not install updates. For the pull-only Compose example:
+
+```bash
+docker compose pull webtools
+docker compose up -d --no-deps --force-recreate webtools
+docker compose exec webtools node /app/scripts/check-runtime-security.mjs --require-system-bundle
+docker compose exec webtools apk info -v ca-certificates ca-certificates-bundle
+```
+
+In Portainer, use **Re-pull image and redeploy**, then run the same Node security check in the container console. A build date alone does not establish which runtime or CA bundle is running.
 
 Run `npm test` for parser, hashing, image-format, and production-server regression checks. Run `npm run build` to type-check and build the app. Container builds run both checks.
 
