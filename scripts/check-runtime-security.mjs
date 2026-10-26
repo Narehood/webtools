@@ -12,17 +12,25 @@ export function assertPatchedNode(version) {
   }
 }
 
-// Roots removed by Node/NSS and Debian following the eMudhra compromise.
-// https://github.com/nodejs/node/pull/66877
+// Debian's OS bundle update removes G3 and the AAA cross-signing root.
 // https://lists.debian.org/debian-security-announce/2026/msg00487.html
-const removedRoots = new Set([
+const removedSystemRoots = new Set([
   'emSign ECC Root CA - G3',
-  'emSign Root CA - C1',
-  'emSign ECC Root CA - C3',
   'AAA Certificate Services', // Packaged as Comodo_AAA_Services_root.crt.
 ]);
 
-export function assertSafeCertificates(pems, store) {
+// NSS 3.131.1 also removes C1 and C3, which patched Debian/Ubuntu OS
+// bundles still retain. Apply these additional removals only to Node stores.
+// https://github.com/nodejs/node/pull/66877
+const removedNodeRoots = new Set([
+  ...removedSystemRoots,
+  'emSign Root CA - C1',
+  'emSign ECC Root CA - C3',
+]);
+
+export function assertSafeCertificates(pems, store, source = 'node') {
+  if (source !== 'node' && source !== 'system') throw new Error(`Unknown CA source: ${source}`);
+  const removedRoots = source === 'system' ? removedSystemRoots : removedNodeRoots;
   if (!pems.length) throw new Error(`${store}: no CA certificates found`);
   for (const pem of pems) {
     const certificate = new X509Certificate(pem);
@@ -35,14 +43,14 @@ export function assertSafeCertificates(pems, store) {
 
 export function checkRuntimeSecurity({ requireSystemBundle = false } = {}) {
   assertPatchedNode(process.versions.node);
-  assertSafeCertificates(getCACertificates('bundled'), 'Node bundled CA store');
-  assertSafeCertificates(getCACertificates('default'), 'Node effective CA store');
+  assertSafeCertificates(getCACertificates('bundled'), 'Node bundled CA store', 'node');
+  assertSafeCertificates(getCACertificates('default'), 'Node effective CA store', 'node');
 
   const bundlePath = '/etc/ssl/certs/ca-certificates.crt';
   const hasSystemBundle = existsSync(bundlePath);
   if (hasSystemBundle) {
     const pems = readFileSync(bundlePath, 'utf8').match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
-    assertSafeCertificates(pems, 'OS CA bundle');
+    assertSafeCertificates(pems, 'OS CA bundle', 'system');
   } else if (requireSystemBundle) {
     throw new Error(`Missing OS CA bundle: ${bundlePath}`);
   }
