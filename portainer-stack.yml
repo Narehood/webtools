@@ -23,6 +23,7 @@
 services:
   webtools:
     image: ghcr.io/narehood/webtools:${WEBTOOLS_TAG:-latest}
+    pull_policy: always
     container_name: webtools
     ports:
       - "${WEBTOOLS_BIND:-0.0.0.0}:${WEBTOOLS_PORT:-8080}:8080"

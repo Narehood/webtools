@@ -20,7 +20,7 @@ async function deadline<T>(promise: Promise<T>, ms = 3000): Promise<T> {
 }
 
 before(async () => {
-  child = spawn(process.execPath, ['server/prod.ts'], {
+  child = spawn(process.execPath, ['--import', './scripts/check-runtime-security.mjs', 'server/prod.ts'], {
     cwd: fileURLToPath(new URL('../', import.meta.url)),
     env: { ...process.env, PORT: '0' }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   });

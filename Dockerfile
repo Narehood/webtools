@@ -2,7 +2,16 @@
 # Homelab image: Node 24.22.1 LTS on Alpine. Frontend is compiled away;
 # the running container includes native image codecs for disk-backed photo jobs.
 
-FROM node:24.22.1-alpine AS build
+FROM node:24.22.1-alpine AS base
+# Refresh OS security fixes as well as Node's separately bundled trust store.
+# 20261020-r0 removes the roots affected by the eMudhra CA compromise.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache "ca-certificates>=20261020-r0" \
+    && update-ca-certificates
+COPY scripts/check-runtime-security.mjs /app/scripts/check-runtime-security.mjs
+RUN node /app/scripts/check-runtime-security.mjs --require-system-bundle
+
+FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -15,7 +24,7 @@ COPY docs ./docs
 COPY scripts ./scripts
 RUN npm test && npm run build && node scripts/copy-server-deps.mjs /runtime
 
-FROM node:24.22.1-alpine
+FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080
@@ -44,4 +53,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1
 
-CMD ["node", "server/prod.ts"]
+CMD ["node", "--import", "./scripts/check-runtime-security.mjs", "server/prod.ts"]
