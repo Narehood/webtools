@@ -1,6 +1,6 @@
 import {
   PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFOptionList,
-  PDFRadioGroup, PDFSignature, PDFDict, PDFName, StandardFonts, LineCapStyle, degrees, rgb,
+  PDFRadioGroup, PDFSignature, PDFDict, PDFHexString, PDFName, StandardFonts, LineCapStyle, degrees, rgb,
   type PDFFont,
 } from "pdf-lib";
 import { MAX_PDF_FILE_BYTES, MAX_PDF_TOTAL_BYTES, MAX_PDF_PAGES, normalizeQuarterTurn } from "./pdfTools.ts";
@@ -196,7 +196,10 @@ export async function prepareEditorSource(source: EditorSource, values: Record<s
     const font = await document.embedFont(StandardFonts.Helvetica);
     for (const field of form.getFields()) {
       // Never regenerate a password's stored value as visible page text.
-      if (field instanceof PDFTextField && field.isPassword()) field.setText("");
+      if (field instanceof PDFTextField && field.isPassword()) {
+        field.setText("");
+        field.acroField.setValue(PDFHexString.fromText("")); // Shadow inherited values as well.
+      }
       try { if (field.needsAppearancesUpdate()) field.defaultUpdateAppearances(font); }
       catch (error) {
         if (edited.has(field.getName())) throw new Error(`${field.getName()}: ${error instanceof Error ? error.message : "Could not update this field."}`);

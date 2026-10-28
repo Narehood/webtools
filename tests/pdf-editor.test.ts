@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, decodePDFRawStream, degrees } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, StandardFonts, decodePDFRawStream, degrees } from "pdf-lib";
 import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, moveEditorPage, pageDisplaySize, placeUprightMarkup, prepareEditorSource, pruneEditorHistory, readEditorPdf, retainedEditorSourceIds, wrapMarkupText, type EditorHistory, type PdfMarkup } from "../src/lib/pdfEditor.ts";
 import { uuidV4 } from "../src/lib/text.ts";
 
@@ -162,21 +162,23 @@ test("an invisible digital signature widget does not prevent an edited-copy expo
 });
 
 test("password values never become visible text when regenerating form appearances", async () => {
-  for (const missingAppearance of [false, true]) {
+  for (const inherited of [false, true]) for (const missingAppearance of [false, true]) {
     const original = await PDFDocument.create(); const page = original.addPage();
-    const pin = original.getForm().createTextField("pin"); pin.enablePassword(); pin.addToPage(page); pin.setText("fixture-secret");
+    const fieldName = inherited ? "login.pin" : "pin", secret = inherited ? "inherited-secret" : "fixture-secret";
+    const pin = original.getForm().createTextField(fieldName); pin.enablePassword(); pin.addToPage(page); pin.setText(secret);
+    if (inherited) { pin.acroField.getParent()!.dict.set(PDFName.of("V"), PDFHexString.fromText(secret)); pin.acroField.removeValue(); }
     if (missingAppearance) for (const widget of pin.acroField.getWidgets()) widget.dict.delete(PDFName.of("AP"));
     const normal = original.getForm().createTextField("name"); normal.addToPage(page);
     const { source, pages } = await readEditorPdf(await original.save({ updateFieldAppearances: false }), "password.pdf");
-    assert.equal(source.fields.some((field) => field.name === "pin"), false);
+    assert.equal(source.fields.some((field) => field.name === fieldName), false);
     const values = { name: "Updated name" };
     const preview = await PDFDocument.load(await (await prepareEditorSource(source, values)).save());
     const output = await PDFDocument.load(await exportEditorPdf([source], { pages, forms: { [source.id]: values } }));
-    const secretHex = Buffer.from("fixture-secret").toString("hex").toUpperCase();
+    const secretHex = Buffer.from(secret).toString("hex").toUpperCase();
     assert.equal(streams(preview).includes(secretHex), false);
     assert.equal(streams(output).includes(secretHex), false);
     assert.match(streams(output), /55706461746564206E616D65/);
-    assert.equal((await PDFDocument.load(source.bytes)).getForm().getTextField("pin").getText(), "fixture-secret");
+    assert.equal((await PDFDocument.load(source.bytes)).getForm().getTextField(fieldName).getText(), secret);
   }
 });
 
