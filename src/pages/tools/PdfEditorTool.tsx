@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { PDFDocument, StandardFonts, type PDFFont } from "pdf-lib";
 import { ToolFrame } from "../../components/Utility";
 import { MarkupGraphic, PdfEditorStage, PdfPageCanvas, SignaturePad, usePdfDocuments, type EditorTool } from "../../components/PdfEditorStage";
-import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, markupContentSize, moveEditorPage, pageDisplaySize, pageOverlayTransform, readEditorPdf, type EditorPage, type EditorSnapshot, type EditorSource, type FormValue, type PdfMarkup, type Point } from "../../lib/pdfEditor";
+import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, markupContentSize, moveEditorPage, pageDisplaySize, pageOverlayTransform, pruneEditorHistory, readEditorPdf, retainedEditorSourceIds, type EditorHistory, type EditorPage, type EditorSnapshot, type EditorSource, type FormValue, type PdfMarkup, type Point } from "../../lib/pdfEditor";
 import { MAX_PDF_FILE_BYTES, MAX_PDF_PAGES, MAX_PDF_TOTAL_BYTES, normalizeQuarterTurn } from "../../lib/pdfTools";
 import { fileStem } from "../../lib/fileImageTools";
 import "./pdf-editor.css";
@@ -23,8 +23,11 @@ const TOOL_OPTIONS: [EditorTool, string, string][] = [
 
 export default function PdfEditorTool() {
   const [sources, setSources] = useState<EditorSource[]>([]);
-  const [history, setHistory] = useState<{ past: EditorSnapshot[]; present: EditorSnapshot; future: EditorSnapshot[] }>({ past: [], present: EMPTY, future: [] });
+  const [history, setHistory] = useState<EditorHistory>({ past: [], present: EMPTY, future: [] });
   const { pages, forms } = history.present;
+  const retainedSourceIds = useMemo(() => retainedEditorSourceIds(history), [history]);
+  const liveSources = useMemo(() => sources.filter((s) => retainedSourceIds.has(s.id)), [sources, retainedSourceIds]);
+  useEffect(() => { if (sources.length !== liveSources.length) setSources(liveSources); }, [sources, liveSources]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<EditorTool>("select");
@@ -36,7 +39,7 @@ export default function PdfEditorTool() {
   const [dragging, setDragging] = useState<string | null>(null), [fileOver, setFileOver] = useState(false);
   const [font, setFont] = useState<PDFFont>();
   const inputRef = useRef<HTMLInputElement>(null), importLock = useRef(false), saved = useRef<EditorSnapshot>(EMPTY);
-  const { documents, error: renderError } = usePdfDocuments(sources, forms);
+  const { documents, error: renderError } = usePdfDocuments(liveSources, forms);
   const active = pages.find((p) => p.id === activeId) ?? pages[0];
   const activeIndex = active ? pages.indexOf(active) : -1;
   const selected = active?.markups.find((m) => m.id === selectedId);
@@ -55,7 +58,7 @@ export default function PdfEditorTool() {
   }, [dirty]);
 
   function commit(next: EditorSnapshot | ((value: EditorSnapshot) => EditorSnapshot)) {
-    setHistory((old) => ({ past: [...old.past, old.present].slice(-40), present: typeof next === "function" ? next(old.present) : next, future: [] }));
+    setHistory((old) => pruneEditorHistory({ past: [...old.past, old.present].slice(-40), present: typeof next === "function" ? next(old.present) : next, future: [] }));
     setNotice("");
   }
   function undo() {
@@ -100,7 +103,7 @@ export default function PdfEditorTool() {
     importLock.current = true; setBusy("Opening PDFs…"); setError("");
     try {
       const addedSources: EditorSource[] = [], addedPages: EditorPage[] = [];
-      let total = sources.reduce((n, s) => n + s.bytes.length, 0);
+      let total = liveSources.reduce((n, s) => n + s.bytes.length, 0);
       for (const file of files) {
         if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") throw new Error(`${file.name}: choose a PDF file.`);
         if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${file.name}: exceeds the 30 MB file limit.`);
@@ -140,7 +143,7 @@ export default function PdfEditorTool() {
     setBusy("Preparing PDF…"); setError("");
     try {
       const snapshot = history.present;
-      const bytes = await exportEditorPdf(sources, currentOnly && active ? { ...snapshot, pages: [active] } : snapshot);
+      const bytes = await exportEditorPdf(liveSources, currentOnly && active ? { ...snapshot, pages: [active] } : snapshot);
       const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: "application/pdf" }));
       const link = document.createElement("a"); link.href = url; link.download = `${fileStem(filename || "document-edited")}${currentOnly ? `-page-${activeIndex + 1}` : ""}.pdf`; link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 5000);

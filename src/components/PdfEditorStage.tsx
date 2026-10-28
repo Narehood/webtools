@@ -7,6 +7,7 @@ import {
   type EditorPage, type EditorSource, type FormValue, type PdfMarkup, type Point, type MarkupKind,
 } from "../lib/pdfEditor";
 import { uuidV4 } from "../lib/text";
+import { MAX_IMAGE_PIXELS } from "../lib/fileImageTools";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 export type EditorTool = "select" | MarkupKind;
@@ -28,7 +29,7 @@ export function usePdfDocuments(sources: EditorSource[], forms: Record<string, R
         const changed = source.fields.some((f) => JSON.stringify(forms[source.id]?.[f.name] ?? f.value) !== JSON.stringify(f.value));
         const bytes = changed ? await (await prepareEditorSource(source, forms[source.id])).save() : source.bytes;
         if (cancelled) return null;
-        const task = getDocument({ data: bytes.slice(), cMapUrl: "/pdfjs/cmaps/", cMapPacked: true, standardFontDataUrl: "/pdfjs/standard_fonts/", wasmUrl: "/pdfjs/wasm/", iccUrl: "/pdfjs/iccs/", enableXfa: false });
+        const task = getDocument({ data: bytes.slice(), maxImageSize: MAX_IMAGE_PIXELS, cMapUrl: "/pdfjs/cmaps/", cMapPacked: true, standardFontDataUrl: "/pdfjs/standard_fonts/", wasmUrl: "/pdfjs/wasm/", iccUrl: "/pdfjs/iccs/", enableXfa: false });
         pending.add(task);
         const document = await task.promise;
         if (cancelled) { void task.destroy(); return null; }
@@ -129,7 +130,7 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
   const [availableWidth, setAvailableWidth] = useState(650);
   const [font, setFont] = useState<PDFFont>();
   const [draft, setDraft] = useState<PdfMarkup | null>(null);
-  const gesture = useRef<{ start: Point; points: Point[]; original?: PdfMarkup; resize?: boolean; pointerId: number } | null>(null);
+  const gesture = useRef<{ start: Point; points: Point[]; draft: PdfMarkup; original?: PdfMarkup; resize?: boolean; pointerId: number } | null>(null);
   useEffect(() => { void previewFont().then(setFont); }, []);
   useEffect(() => {
     if (!container.current) return;
@@ -157,7 +158,7 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
       const original = page.markups.find((m) => m.id === (resize ? selectedId : id));
       onSelect(original?.id ?? null);
       if (!original) return;
-      gesture.current = { start: p, points: [], original, resize, pointerId: event.pointerId }; setDraft(original);
+      gesture.current = { start: p, points: [], original, draft: original, resize, pointerId: event.pointerId }; setDraft(original);
     } else if (tool === "text") {
       if (!style.text.trim()) return;
       const m = placeUprightMarkup(page, { ...base("text", p), width: 220, height: 100 });
@@ -170,7 +171,7 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
       const size = markupContentSize(m);
       if (size.width >= 8 && size.height >= 8) onAdd(m);
       return;
-    } else { gesture.current = { start: p, points: [p], pointerId: event.pointerId }; setDraft(base(tool, p)); onSelect(null); }
+    } else { const draft = base(tool, p); gesture.current = { start: p, points: [p], draft, pointerId: event.pointerId }; setDraft(draft); onSelect(null); }
     event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault();
   }
   function move(event: ReactPointerEvent<SVGSVGElement>) {
@@ -179,10 +180,12 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
     const p = point(event);
     if (g.original) {
       if (g.resize) {
-        setDraft({ ...g.original, width: Math.max(3, Math.min(page.width - g.original.x, g.original.width + p.x - g.start.x)), height: Math.max(3, Math.min(page.height - g.original.y, g.original.height + p.y - g.start.y)) });
+        g.draft = { ...g.original, width: Math.max(3, Math.min(page.width - g.original.x, g.original.width + p.x - g.start.x)), height: Math.max(3, Math.min(page.height - g.original.y, g.original.height + p.y - g.start.y)) };
+        setDraft(g.draft);
         return;
       }
-      setDraft({ ...g.original, x: Math.max(0, Math.min(page.width - g.original.width, g.original.x + p.x - g.start.x)), y: Math.max(0, Math.min(page.height - g.original.height, g.original.y + p.y - g.start.y)) });
+      g.draft = { ...g.original, x: Math.max(0, Math.min(page.width - g.original.width, g.original.x + p.x - g.start.x)), y: Math.max(0, Math.min(page.height - g.original.height, g.original.y + p.y - g.start.y)) };
+      setDraft(g.draft);
       return;
     }
     const points = tool === "ink" ? [...g.points, p] : [g.start, p];
@@ -190,11 +193,14 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
     g.points = points;
     const x = Math.min(...points.map((v) => v.x)), y = Math.min(...points.map((v) => v.y));
     const w = Math.max(1, Math.max(...points.map((v) => v.x)) - x), h = Math.max(1, Math.max(...points.map((v) => v.y)) - y);
-    setDraft((m) => m && ({ ...m, x, y, width: w, height: h, paths: [points.map((v) => ({ x: (v.x - x) / w, y: (v.y - y) / h }))] }));
+    g.draft = { ...g.draft, x, y, width: w, height: h, paths: [points.map((v) => ({ x: (v.x - x) / w, y: (v.y - y) / h }))] };
+    setDraft(g.draft);
   }
   function finish(event: ReactPointerEvent<SVGSVGElement>, cancelled = false) {
     const g = gesture.current;
     if (!g || g.pointerId !== event.pointerId) return;
+    if (!cancelled) move(event);
+    const draft = g.draft;
     gesture.current = null;
     if (!cancelled && draft) {
       if (g.original) { if (g.original.x !== draft.x || g.original.y !== draft.y || g.original.width !== draft.width || g.original.height !== draft.height) onMove(draft); }

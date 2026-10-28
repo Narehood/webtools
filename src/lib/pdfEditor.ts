@@ -30,6 +30,18 @@ export type EditorSource = {
   hasSignatures: boolean; hasXfa: boolean;
 };
 export type EditorSnapshot = { pages: EditorPage[]; forms: Record<string, Record<string, FormValue>> };
+export type EditorHistory = { past: EditorSnapshot[]; present: EditorSnapshot; future: EditorSnapshot[] };
+
+export function retainedEditorSourceIds(history: EditorHistory) {
+  return new Set([...history.past, history.present, ...history.future].flatMap((s) => s.pages.flatMap((p) => p.sourceId ? [p.sourceId] : [])));
+}
+
+export function pruneEditorHistory(history: EditorHistory): EditorHistory {
+  const retained = retainedEditorSourceIds(history);
+  const prune = (s: EditorSnapshot) => Object.keys(s.forms).every((id) => retained.has(id)) ? s
+    : { ...s, forms: Object.fromEntries(Object.entries(s.forms).filter(([id]) => retained.has(id))) };
+  return { past: history.past.map(prune), present: prune(history.present), future: history.future.map(prune) };
+}
 
 export function blankPage(width = 612, height = 792): EditorPage {
   if (![width, height].every((n) => Number.isFinite(n) && n > 0 && n <= 14400)) throw new Error("Invalid page size.");
@@ -133,7 +145,11 @@ export async function readEditorPdf(bytes: Uint8Array, name: string, id = uuidV4
   let hasSignatures = document.context.enumerateIndirectObjects().some(([, object]) => object instanceof PDFDict && object.has(PDFName.of("ByteRange")));
   for (const field of form.getFields()) {
     const common = { name: field.getName(), options: [] as string[], readOnly: field.isReadOnly() };
-    if (field instanceof PDFTextField && !field.isPassword()) fields.push({ ...common, kind: "text", value: field.getText() ?? "", multiline: field.isMultiline(), maxLength: field.getMaxLength() });
+    if (field instanceof PDFTextField && !field.isPassword()) {
+      let value: string;
+      try { value = field.getText() ?? ""; } catch { continue; }
+      fields.push({ ...common, kind: "text", value, multiline: field.isMultiline(), maxLength: field.getMaxLength() });
+    }
     else if (field instanceof PDFCheckBox) fields.push({ ...common, kind: "checkbox", value: field.isChecked() });
     else if (field instanceof PDFDropdown || field instanceof PDFOptionList) fields.push({ ...common, kind: "choice", value: field.getSelected(), options: field.getOptions(), multiple: field.isMultiselect() });
     else if (field instanceof PDFRadioGroup) fields.push({ ...common, kind: "radio", value: field.getSelected() ?? "", options: field.getOptions() });
@@ -156,23 +172,16 @@ export async function prepareEditorSource(source: EditorSource, values: Record<s
   const document = await PDFDocument.load(source.bytes, { updateMetadata: false });
   const form = document.getForm();
   if (form.hasXFA()) form.deleteXFA();
-  // Invisible signature widgets often have no appearance stream to flatten.
-  // Give them an empty appearance; retain existing visible signature appearances.
-  for (const field of form.getFields()) {
-    if (!(field instanceof PDFSignature)) continue;
-    for (const widget of field.acroField.getWidgets()) {
-      if (widget.getAppearances()?.normal) continue;
-      const appearance = document.context.flateStream("", { Type: PDFName.of("XObject"), Subtype: PDFName.of("Form"), BBox: [0, 0, 1, 1] });
-      widget.setNormalAppearance(document.context.register(appearance));
-    }
-  }
+  const edited = new Set<string>();
   for (const item of source.fields) {
     if (item.readOnly || !(item.name in values)) continue;
     const value = values[item.name];
     if (JSON.stringify(value) === JSON.stringify(item.value)) continue;
     const field = form.getField(item.name);
+    edited.add(item.name);
     if (field instanceof PDFTextField) {
-      assertPdfText(String(value));
+      try { assertPdfText(String(value)); }
+      catch (error) { throw new Error(`${item.name}: ${error instanceof Error ? error.message : "Unsupported field text."}`); }
       field.setText(String(value));
     } else if (field instanceof PDFCheckBox) {
       if (value) field.check(); else field.uncheck();
@@ -184,7 +193,22 @@ export async function prepareEditorSource(source: EditorSource, values: Record<s
     }
   }
   if (form.getFields().length) {
-    form.updateFieldAppearances(await document.embedFont(StandardFonts.Helvetica));
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    for (const field of form.getFields()) {
+      // Never regenerate a password's stored value as visible page text.
+      if (field instanceof PDFTextField && field.isPassword()) field.setText("");
+      try { if (field.needsAppearancesUpdate()) field.defaultUpdateAppearances(font); }
+      catch (error) {
+        if (edited.has(field.getName())) throw new Error(`${field.getName()}: ${error instanceof Error ? error.message : "Could not update this field."}`);
+        if (!(error instanceof Error && /^(WinAnsi cannot encode|Reading rich text fields is not supported)/.test(error.message))) throw error;
+        // Retain existing appearances for untouched fields that this font cannot render.
+      }
+      for (const widget of field.acroField.getWidgets()) {
+        if (widget.getAppearances()?.normal) continue;
+        const appearance = document.context.flateStream("", { Type: PDFName.of("XObject"), Subtype: PDFName.of("Form"), BBox: [0, 0, 1, 1] });
+        widget.setNormalAppearance(document.context.register(appearance));
+      }
+    }
     form.flatten({ updateFieldAppearances: false });
   }
   return document;

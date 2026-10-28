@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, decodePDFRawStream, degrees } from "pdf-lib";
-import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, moveEditorPage, pageDisplaySize, placeUprightMarkup, prepareEditorSource, readEditorPdf, wrapMarkupText, type PdfMarkup } from "../src/lib/pdfEditor.ts";
+import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, moveEditorPage, pageDisplaySize, placeUprightMarkup, prepareEditorSource, pruneEditorHistory, readEditorPdf, retainedEditorSourceIds, wrapMarkupText, type EditorHistory, type PdfMarkup } from "../src/lib/pdfEditor.ts";
 import { uuidV4 } from "../src/lib/text.ts";
 
 function markup(kind: PdfMarkup["kind"], overrides: Partial<PdfMarkup> = {}): PdfMarkup {
@@ -159,6 +159,60 @@ test("an invisible digital signature widget does not prevent an edited-copy expo
   const output = await PDFDocument.load(await exportEditorPdf([source], { pages, forms: {} }));
   assert.equal(output.getPageCount(), 1);
   assert.equal(output.getForm().getFields().length, 0);
+});
+
+test("password values never become visible text when regenerating form appearances", async () => {
+  for (const missingAppearance of [false, true]) {
+    const original = await PDFDocument.create(); const page = original.addPage();
+    const pin = original.getForm().createTextField("pin"); pin.enablePassword(); pin.addToPage(page); pin.setText("fixture-secret");
+    if (missingAppearance) for (const widget of pin.acroField.getWidgets()) widget.dict.delete(PDFName.of("AP"));
+    const normal = original.getForm().createTextField("name"); normal.addToPage(page);
+    const { source, pages } = await readEditorPdf(await original.save({ updateFieldAppearances: false }), "password.pdf");
+    assert.equal(source.fields.some((field) => field.name === "pin"), false);
+    const values = { name: "Updated name" };
+    const preview = await PDFDocument.load(await (await prepareEditorSource(source, values)).save());
+    const output = await PDFDocument.load(await exportEditorPdf([source], { pages, forms: { [source.id]: values } }));
+    const secretHex = Buffer.from("fixture-secret").toString("hex").toUpperCase();
+    assert.equal(streams(preview).includes(secretHex), false);
+    assert.equal(streams(output).includes(secretHex), false);
+    assert.match(streams(output), /55706461746564206E616D65/);
+    assert.equal((await PDFDocument.load(source.bytes)).getForm().getTextField("pin").getText(), "fixture-secret");
+  }
+});
+
+test("unreadable rich text and unsupported original field values do not block pages or other form edits", async () => {
+  for (const kind of ["unicode", "rich"]) for (const missingAppearance of [false, true]) {
+    const original = await PDFDocument.create(); const page = original.addPage(); page.drawText("Original page");
+    const field = original.getForm().createTextField("original"); field.setText("Existing appearance"); field.addToPage(page);
+    if (kind === "unicode") field.setText("\u3053\u3093\u306b\u3061\u306f");
+    else { field.enableRichFormatting(); field.acroField.dict.delete(PDFName.of("V")); }
+    if (missingAppearance) for (const widget of field.acroField.getWidgets()) widget.dict.delete(PDFName.of("AP"));
+    const editable = original.getForm().createTextField("editable"); editable.addToPage(page);
+    const { source, pages } = await readEditorPdf(await original.save({ updateFieldAppearances: false }), "mixed-form.pdf");
+    assert.equal(pages.length, 1);
+    assert.equal(source.fields.some((field) => field.name === "original"), kind !== "rich");
+    pages[0]!.markups = [markup("text", { text: "Added markup" })];
+    const output = await PDFDocument.load(await exportEditorPdf([source], { pages, forms: { [source.id]: { editable: "Edited" } } }));
+    assert.match(streams(output), /4F726967696E616C2070616765/);
+    assert.match(streams(output), /4164646564206D61726B7570/);
+    assert.match(streams(output), /456469746564/);
+    if (!missingAppearance) assert.match(streams(output), /4578697374696E6720617070656172616E6365/);
+    await assert.rejects(prepareEditorSource(source, { editable: "\u3053" }), /editable:.*font does not support/);
+  }
+});
+
+test("sources remain reachable through undo/redo, then their form data is pruned when history drops them", () => {
+  const a = { ...blankPage(), sourceId: "a" }, b = { ...blankPage(), sourceId: "b" };
+  const blank = { pages: [blankPage()], forms: { a: { name: "A" }, b: { name: "B" }, orphan: { name: "Discarded" } } };
+  const history: EditorHistory = { past: [{ pages: [a], forms: { a: { name: "A" } } }], present: blank, future: [{ pages: [b], forms: { b: { name: "B" } } }] };
+  assert.deepEqual([...retainedEditorSourceIds(history)].sort(), ["a", "b"]);
+  const retained = pruneEditorHistory(history);
+  assert.deepEqual(Object.keys(retained.present.forms), ["a", "b"]);
+  assert.equal(retained.past[0], history.past[0]);
+  const clearedRedo = pruneEditorHistory({ ...history, past: [], future: [] });
+  assert.equal(retainedEditorSourceIds(clearedRedo).size, 0);
+  assert.deepEqual(clearedRedo.present.forms, {});
+  assert.ok(history.present.forms.orphan); // Pruning does not mutate snapshots still used by undo.
 });
 
 test("editor rejects invalid files, missing pages and empty exports, and detects non-form signature dictionaries", async () => {

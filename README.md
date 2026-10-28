@@ -185,6 +185,8 @@ Open `/pdf-editor` for a local PDF viewer and markup workspace. Drag thumbnails 
 
 Standard AcroForm text fields, checkboxes, choices, and radio groups can be filled from the Forms inspector. Filled forms and new markup are flattened into visible page content on download. This creates a new PDF: original document-level bookmarks and digital signatures are not retained. Signatures added here are handwritten marks, not certificate signatures. XFA and password-protected PDFs are unsupported. Added text uses Helvetica with Latin/WinAnsi characters; existing PDF text is displayed but not edited. Documents and signatures stay in memory in the current browser tab; download before leaving. Limits: 30 MB per file, 75 MB loaded, 200 pages. PDF.js and its fonts, CMaps, image decoders, and worker are bundled locally.
 
+Unreadable rich-text fields are omitted from the inspector. Flattened copies blank password widgets; untouched fields with unsupported text retain their existing appearance, or remain blank if none exists. PDF previews skip embedded images above 40 megapixels; downloads retain the original page content.
+
 **PDF merge & split**  
 Add one or more PDFs, reorder files or individual pages, rotate pages, and download the whole result or just selected pages. Export different selections to split a document. Processing stays in this browser, with limits of 30 MB per file, 75 MB total, and 200 pages. Encrypted PDFs are not supported. Export creates a new page-based document; document-level features such as bookmarks, interactive forms, and digital signatures are not preserved as a complete document.
 
