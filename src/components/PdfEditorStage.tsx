@@ -3,9 +3,10 @@ import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-d
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, StandardFonts, type PDFFont } from "pdf-lib";
 import {
-  pageDisplaySize, pageOverlayTransform, prepareEditorSource, wrapMarkupText,
+  pageDisplaySize, pageOverlayTransform, prepareEditorSource, wrapMarkupText, markupContentSize, placeUprightMarkup,
   type EditorPage, type EditorSource, type FormValue, type PdfMarkup, type Point, type MarkupKind,
 } from "../lib/pdfEditor";
+import { uuidV4 } from "../lib/text";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 export type EditorTool = "select" | MarkupKind;
@@ -54,6 +55,10 @@ function previewFont() {
 }
 
 export function MarkupGraphic({ markup: m, font }: { markup: PdfMarkup; font?: PDFFont }) {
+  if (m.rotation) {
+    const size = markupContentSize(m);
+    return <g transform={`translate(${m.x} ${m.y}) ${pageOverlayTransform({ ...size, rotation: m.rotation })}`}><MarkupGraphic markup={{ ...m, ...size, x: 0, y: 0, rotation: 0 }} font={font} /></g>;
+  }
   const common = { stroke: m.color, strokeWidth: m.strokeWidth, fill: "none", strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   if (m.kind === "text") {
     const lines = font ? wrapMarkupText(m.text, m.width, m.fontSize, font) : m.text.split("\n");
@@ -140,7 +145,7 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
     return { x: Math.max(0, Math.min(page.width, p.x)), y: Math.max(0, Math.min(page.height, p.y)) };
   }
   function base(kind: MarkupKind, p: Point): PdfMarkup {
-    return { id: crypto.randomUUID(), kind, ...p, width: 1, height: 1, ...style, paths: [] };
+    return { id: uuidV4(), kind, ...p, width: 1, height: 1, ...style, paths: [] };
   }
   function down(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.button !== 0 || gesture.current) return;
@@ -155,13 +160,15 @@ export function PdfEditorStage({ page, document, tool, style, selectedId, signat
       gesture.current = { start: p, points: [], original, resize, pointerId: event.pointerId }; setDraft(original);
     } else if (tool === "text") {
       if (!style.text.trim()) return;
-      const m = { ...base("text", p), width: Math.min(220, page.width - p.x), height: Math.min(100, page.height - p.y) };
-      if (m.width >= 8 && m.height >= m.fontSize) onAdd(m);
+      const m = placeUprightMarkup(page, { ...base("text", p), width: 220, height: 100 });
+      const size = markupContentSize(m);
+      if (size.width >= 8 && size.height >= m.fontSize) onAdd(m);
       return;
     } else if (tool === "signature") {
       if (!signature.length) return;
-      const w = Math.min(180, page.width - p.x), h = Math.min(w * 0.35, page.height - p.y);
-      if (w >= 8 && h >= 8) onAdd({ ...base("signature", p), width: w, height: h, paths: signature });
+      const m = placeUprightMarkup(page, { ...base("signature", p), width: 180, height: 63, paths: signature });
+      const size = markupContentSize(m);
+      if (size.width >= 8 && size.height >= 8) onAdd(m);
       return;
     } else { gesture.current = { start: p, points: [p], pointerId: event.pointerId }; setDraft(base(tool, p)); onSelect(null); }
     event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault();

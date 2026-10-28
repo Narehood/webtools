@@ -4,6 +4,7 @@ import {
   type PDFFont,
 } from "pdf-lib";
 import { MAX_PDF_FILE_BYTES, MAX_PDF_TOTAL_BYTES, MAX_PDF_PAGES, normalizeQuarterTurn } from "./pdfTools.ts";
+import { uuidV4 } from "./text.ts";
 
 export type Point = { x: number; y: number };
 export type MarkupKind = "text" | "ink" | "signature" | "highlight" | "rectangle" | "ellipse" | "line" | "arrow";
@@ -11,6 +12,7 @@ export type PdfMarkup = {
   id: string; kind: MarkupKind; x: number; y: number; width: number; height: number;
   color: string; strokeWidth: number; fontSize: number; text: string;
   paths: Point[][];
+  rotation?: number;
 };
 export type EditorPage = {
   id: string; sourceId: string | null; sourcePageIndex: number;
@@ -31,7 +33,7 @@ export type EditorSnapshot = { pages: EditorPage[]; forms: Record<string, Record
 
 export function blankPage(width = 612, height = 792): EditorPage {
   if (![width, height].every((n) => Number.isFinite(n) && n > 0 && n <= 14400)) throw new Error("Invalid page size.");
-  return { id: crypto.randomUUID(), sourceId: null, sourcePageIndex: 0, width, height, cropX: 0, cropY: 0, rotation: 0, markups: [] };
+  return { id: uuidV4(), sourceId: null, sourcePageIndex: 0, width, height, cropX: 0, cropY: 0, rotation: 0, markups: [] };
 }
 
 export function pageDisplaySize(page: EditorPage) {
@@ -41,13 +43,43 @@ export function pageDisplaySize(page: EditorPage) {
 }
 
 /** SVG transform from the unrotated, top-left crop coordinates to the displayed page. */
-export function pageOverlayTransform(page: EditorPage) {
+export function pageOverlayTransform(page: Pick<EditorPage, "width" | "height" | "rotation">) {
   switch (normalizeQuarterTurn(page.rotation)) {
     case 90: return `translate(${page.height} 0) rotate(90)`;
     case 180: return `translate(${page.width} ${page.height}) rotate(180)`;
     case 270: return `translate(0 ${page.width}) rotate(270)`;
     default: return "";
   }
+}
+
+export function markupContentSize(m: Pick<PdfMarkup, "width" | "height" | "rotation">) {
+  return (m.rotation ?? 0) % 180 ? { width: m.height, height: m.width } : { width: m.width, height: m.height };
+}
+
+/** Local markup coordinates to its unrotated page bounding box. */
+export function markupPagePoint(m: PdfMarkup, p: Point): Point {
+  switch (m.rotation ?? 0) {
+    case 90: return { x: m.x + m.width - p.y, y: m.y + p.x };
+    case 180: return { x: m.x + m.width - p.x, y: m.y + m.height - p.y };
+    case 270: return { x: m.x + p.y, y: m.y + m.height - p.x };
+    default: return { x: m.x + p.x, y: m.y + p.y };
+  }
+}
+
+/** Place upright relative to the current view, while retaining page-local bounds for moving/resizing. */
+export function placeUprightMarkup(page: EditorPage, m: PdfMarkup): PdfMarkup {
+  const r = normalizeQuarterTurn(page.rotation);
+  const room = r === 90 ? { width: m.y, height: page.width - m.x }
+    : r === 180 ? { width: m.x, height: m.y }
+      : r === 270 ? { width: page.height - m.y, height: m.x }
+        : { width: page.width - m.x, height: page.height - m.y };
+  const width = Math.min(m.width, room.width);
+  const height = Math.min(m.height, room.height, m.kind === "signature" ? width * 0.35 : Infinity);
+  const rotation = normalizeQuarterTurn(-r);
+  if (r === 90) return { ...m, y: m.y - width, width: height, height: width, rotation };
+  if (r === 180) return { ...m, x: m.x - width, y: m.y - height, width, height, rotation };
+  if (r === 270) return { ...m, x: m.x - height, width: height, height: width, rotation };
+  return { ...m, width, height, rotation };
 }
 
 export function moveEditorPage(pages: readonly EditorPage[], id: string, target: number) {
@@ -60,7 +92,7 @@ export function moveEditorPage(pages: readonly EditorPage[], id: string, target:
 }
 
 export function duplicateEditorPage(page: EditorPage): EditorPage {
-  return { ...page, id: crypto.randomUUID(), markups: page.markups.map((m) => ({ ...m, id: crypto.randomUUID(), paths: m.paths.map((path) => path.map((p) => ({ ...p }))) })) };
+  return { ...page, id: uuidV4(), markups: page.markups.map((m) => ({ ...m, id: uuidV4(), paths: m.paths.map((path) => path.map((p) => ({ ...p }))) })) };
 }
 
 export function assertPdfText(text: string) {
@@ -87,7 +119,7 @@ export function wrapMarkupText(text: string, width: number, size: number, font: 
   return lines;
 }
 
-export async function readEditorPdf(bytes: Uint8Array, name: string, id = crypto.randomUUID()) {
+export async function readEditorPdf(bytes: Uint8Array, name: string, id = uuidV4()) {
   if (!bytes.length || bytes.length > MAX_PDF_FILE_BYTES) throw new Error(`${name}: choose a PDF up to 30 MB.`);
   let document: PDFDocument;
   try { document = await PDFDocument.load(bytes, { updateMetadata: false }); }
@@ -115,7 +147,7 @@ export async function readEditorPdf(bytes: Uint8Array, name: string, id = crypto
     const intersects = width > 0 && height > 0;
     if (!intersects) { width = media.width; height = media.height; }
     if (![width, height].every((n) => Number.isFinite(n) && n > 0 && n <= 14400)) throw new Error(`${name}: unsupported page dimensions.`);
-    return { id: crypto.randomUUID(), sourceId: id, sourcePageIndex: index, width, height, cropX: intersects ? x : media.x, cropY: intersects ? y : media.y, rotation: normalizeQuarterTurn(p.getRotation().angle), markups: [] };
+    return { id: uuidV4(), sourceId: id, sourcePageIndex: index, width, height, cropX: intersects ? x : media.x, cropY: intersects ? y : media.y, rotation: normalizeQuarterTurn(p.getRotation().angle), markups: [] };
   });
   return { source: { id, name, bytes, fields, hasSignatures, hasXfa: form.hasXFA() } satisfies EditorSource, pages };
 }
@@ -182,13 +214,15 @@ export async function exportEditorPdf(sources: readonly EditorSource[], snapshot
     page!.setRotation(degrees(normalizeQuarterTurn(item.rotation)));
     const toPdf = (p: Point) => ({ x: item.cropX + p.x, y: item.cropY + item.height - p.y });
     for (const m of item.markups) {
+      const size = markupContentSize(m);
+      const localToPdf = (point: Point) => toPdf(markupPagePoint(m, point));
       const hex = /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : "#111111";
       const color = rgb(parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255);
       const position = toPdf({ x: m.x, y: m.y + m.height });
       if (m.kind === "text") {
-        const lines = wrapMarkupText(m.text, m.width, m.fontSize, font);
-        lines.slice(0, Math.max(1, Math.floor(m.height / (m.fontSize * 1.2)))).forEach((line, index) => {
-          page!.drawText(line, { ...toPdf({ x: m.x, y: m.y + m.fontSize + index * m.fontSize * 1.2 }), size: m.fontSize, font, color });
+        const lines = wrapMarkupText(m.text, size.width, m.fontSize, font);
+        lines.slice(0, Math.max(1, Math.floor(size.height / (m.fontSize * 1.2)))).forEach((line, index) => {
+          page!.drawText(line, { ...localToPdf({ x: 0, y: m.fontSize + index * m.fontSize * 1.2 }), rotate: degrees(-(m.rotation ?? 0)), size: m.fontSize, font, color });
         });
       } else if (m.kind === "highlight" || m.kind === "rectangle") {
         page!.drawRectangle({ ...position, width: m.width, height: m.height, ...(m.kind === "highlight" ? { color, opacity: 0.3 } : { borderColor: color, borderWidth: m.strokeWidth }) });
@@ -196,7 +230,7 @@ export async function exportEditorPdf(sources: readonly EditorSource[], snapshot
         page!.drawEllipse({ ...toPdf({ x: m.x + m.width / 2, y: m.y + m.height / 2 }), xScale: m.width / 2, yScale: m.height / 2, borderColor: color, borderWidth: m.strokeWidth });
       } else {
         for (const path of m.paths) {
-          const points = path.map((p) => toPdf({ x: m.x + p.x * m.width, y: m.y + p.y * m.height }));
+          const points = path.map((p) => localToPdf({ x: p.x * size.width, y: p.y * size.height }));
           if (points.length === 1) page!.drawCircle({ ...points[0], size: m.strokeWidth / 2, color });
           for (let i = 1; i < points.length; i++) page!.drawLine({ start: points[i - 1]!, end: points[i]!, thickness: m.strokeWidth, color, lineCap: LineCapStyle.Round });
           if (m.kind === "arrow" && points.length >= 2) {

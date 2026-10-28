@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, decodePDFRawStream, degrees } from "pdf-lib";
-import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, moveEditorPage, pageDisplaySize, prepareEditorSource, readEditorPdf, wrapMarkupText, type PdfMarkup } from "../src/lib/pdfEditor.ts";
+import { assertPdfText, blankPage, duplicateEditorPage, exportEditorPdf, moveEditorPage, pageDisplaySize, placeUprightMarkup, prepareEditorSource, readEditorPdf, wrapMarkupText, type PdfMarkup } from "../src/lib/pdfEditor.ts";
+import { uuidV4 } from "../src/lib/text.ts";
 
 function markup(kind: PdfMarkup["kind"], overrides: Partial<PdfMarkup> = {}): PdfMarkup {
-  return { id: crypto.randomUUID(), kind, x: 20, y: 30, width: 120, height: 60, color: "#112233", fontSize: 16, strokeWidth: 2, text: "Hello PDF", paths: [[{ x: 0, y: 1 }, { x: 1, y: 0 }]], ...overrides };
+  return { id: uuidV4(), kind, x: 20, y: 30, width: 120, height: 60, color: "#112233", fontSize: 16, strokeWidth: 2, text: "Hello PDF", paths: [[{ x: 0, y: 1 }, { x: 1, y: 0 }]], ...overrides };
 }
 
 function streams(pdf: PDFDocument) {
@@ -13,6 +14,51 @@ function streams(pdf: PDFDocument) {
     return [new TextDecoder().decode(decodePDFRawStream(object).decode())];
   }).join("\n");
 }
+
+test("PDF import, blank pages, and duplication work on LAN HTTP without randomUUID", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID");
+  Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+  try {
+    const original = await PDFDocument.create(); original.addPage();
+    const { source, pages } = await readEditorPdf(await original.save(), "lan.pdf");
+    const blank = blankPage(); blank.markups = [markup("text")];
+    const duplicate = duplicateEditorPage(blank);
+    const ids = [source.id, pages[0]!.id, blank.id, blank.markups[0]!.id, duplicate.id, duplicate.markups[0]!.id];
+    assert.equal(new Set(ids).size, ids.length);
+    for (const id of ids) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal((await PDFDocument.load(await exportEditorPdf([source], { pages: [...pages, blank, duplicate], forms: {} }))).getPageCount(), 3);
+  } finally {
+    if (descriptor) Object.defineProperty(crypto, "randomUUID", descriptor);
+    else Reflect.deleteProperty(crypto, "randomUUID");
+  }
+});
+
+test("text and signatures placed on rotated cropped pages export upright at the clicked position", async () => {
+  for (const rotation of [0, 90, 180, 270]) {
+    const original = await PDFDocument.create(); const p = original.addPage([500, 600]);
+    p.setCropBox(50, 70, 300, 400); p.setRotation(degrees(rotation));
+    const { source, pages } = await readEditorPdf(await original.save(), "rotated.pdf");
+    const page = pages[0]!;
+    page.markups = [placeUprightMarkup(page, markup("text", { x: 150, y: 200 })), placeUprightMarkup(page, markup("signature", { x: 150, y: 200, width: 100, height: 35, paths: [[{ x: 0, y: 0 }, { x: 1, y: 1 }]] }))];
+    const output = await PDFDocument.load(await exportEditorPdf([source], { pages, forms: {} }));
+    const content = streams(output);
+    const matrix = content.match(/([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) Tm/)!.slice(1).map(Number);
+    const [a, b, , , x, y] = matrix as [number, number, number, number, number, number];
+    const baseline = rotation === 0 ? [a, -b] : rotation === 90 ? [b, a] : rotation === 180 ? [-a, b] : [-b, -a];
+    assert.ok(Math.abs(baseline[0]! - 1) < 1e-8 && Math.abs(baseline[1]!) < 1e-8, `text baseline at ${rotation} degrees`);
+    function display(pdfX: number, pdfY: number) {
+      const cx = pdfX - 50, cy = pdfY - 70;
+      return rotation === 0 ? [cx, 400 - cy] : rotation === 90 ? [cy, cx] : rotation === 180 ? [300 - cx, cy] : [400 - cy, 300 - cx];
+    }
+    const anchor = rotation % 180 ? [200, 150] : [150, 200];
+    assert.deepEqual(display(x, y), [anchor[0], anchor[1]! + 16]);
+    const moves = [...content.matchAll(/([-\d.]+) ([-\d.]+) ([ml])\n/g)];
+    assert.deepEqual(display(Number(moves[0]![1]), Number(moves[0]![2])), anchor);
+    const end = moves.at(-1)!;
+    assert.deepEqual(display(Number(end[1]), Number(end[2])), [anchor[0]! + 100, anchor[1]! + 35]);
+    assert.equal(output.getPage(0).getRotation().angle, rotation);
+  }
+});
 
 test("editor exports a reordered mix of source pages, duplicate pages, and a blank page without mutating the original", async () => {
   const original = await PDFDocument.create();
