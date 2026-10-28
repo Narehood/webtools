@@ -40,6 +40,34 @@ test('runtime security check fails on empty or malformed CA bundles', () => {
   assert.throws(() => assertSafeCertificates(['invalid certificate'], 'test CA store'));
 });
 
+test('patched Debian and Ubuntu OS bundles accept retained roots while rejecting G3 and AAA', async () => {
+  const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  async function pem(commonName: string) {
+    const certificate = await X509CertificateGenerator.createSelfSigned({
+      serialNumber: '03',
+      name: `CN=${commonName}`,
+      notBefore: new Date('2026-01-01'),
+      notAfter: new Date('2027-01-01'),
+      signingAlgorithm: { name: 'ECDSA', hash: 'SHA-256' },
+      keys,
+    });
+    return certificate.toString('pem');
+  }
+
+  const patchedBundle = await Promise.all([
+    'emSign Root CA - G1', 'emSign Root CA - C1', 'emSign ECC Root CA - C3',
+  ].map(pem));
+  assert.doesNotThrow(() => assertSafeCertificates(patchedBundle, 'test OS CA bundle', 'system'));
+
+  for (const commonName of ['emSign ECC Root CA - G3', 'AAA Certificate Services']) {
+    const compromisedBundle = [...patchedBundle, await pem(commonName)];
+    assert.throws(
+      () => assertSafeCertificates(compromisedBundle, 'test OS CA bundle', 'system'),
+      /test OS CA bundle: removed CA/,
+    );
+  }
+});
+
 test('container startup refuses an effective trust store that reintroduces a removed root', async () => {
   const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   const certificate = await X509CertificateGenerator.createSelfSigned({

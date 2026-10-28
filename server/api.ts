@@ -4,6 +4,7 @@ import { createConnection, isIP } from "node:net";
 import { Resolver, lookup as dnsLookup, reverse as dnsReverse, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
 import whoiser from "whoiser";
 import { handlePhotoApi } from "./photoApi.ts";
+import { createHealthRedirectGuard, fetchStatusResponse, HealthRedirectError, type RedirectGuard } from "./httpRedirects.ts";
 import { assertJsonPost, assertSameOrigin } from "./requestPolicy.ts";
 import {
   compareDnsResolvers,
@@ -74,41 +75,42 @@ function hostnameFrom(input: string): string {
   return trimmed.replace(/\/.*$/, "").replace(/^\.+|\.+$/g, "");
 }
 
-async function checkStatus(rawUrl: string, timeoutMs = 8000) {
+export async function checkStatus(rawUrl: string, timeoutMs = 8000, redirectGuard?: RedirectGuard) {
   const url = normalizeUrl(rawUrl);
   const started = performance.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response | undefined;
+  let finalUrl = url.toString();
+  let redirected = false;
+
+  async function request(method: "HEAD" | "GET") {
+    const result = await fetchStatusResponse(url, method, controller.signal, redirectGuard);
+    response = result.response;
+    finalUrl = result.url;
+    redirected = result.redirected;
+  }
 
   try {
     try {
-      response = await fetch(url, {
-        method: "HEAD",
-        redirect: "follow",
-        signal: controller.signal,
-        headers: { "User-Agent": "WebTools-Status/0.1" },
-      });
-    } catch {
+      await request("HEAD");
+    } catch (error) {
+      if (error instanceof HealthRedirectError) throw error;
       // Some servers disconnect HEAD requests; retry with GET below.
     }
     if (!response || response.status === 405 || response.status === 501) {
       await response?.body?.cancel();
-      response = await fetch(url, {
-        method: "GET",
-        redirect: "follow",
-        signal: controller.signal,
-        headers: { "User-Agent": "WebTools-Status/0.1" },
-      });
+      await request("GET");
     }
+    if (!response) throw new Error("No HTTP response was returned");
 
     return {
       up: response.ok || (response.status >= 100 && response.status < 500),
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
-      url: response.url,
-      redirected: response.redirected,
+      url: finalUrl,
+      redirected,
       ms: Math.round(performance.now() - started),
       checkedAt: new Date().toISOString(),
     };
@@ -210,9 +212,9 @@ async function checkSsl(raw: string, timeoutMs = 8000): Promise<HealthTlsData & 
   });
 }
 
-async function traceHeaders(
+export async function traceHeaders(
   raw: string,
-  limits: { maxHops?: number; timeoutMs?: number; totalTimeoutMs?: number } = {},
+  limits: { maxHops?: number; timeoutMs?: number; totalTimeoutMs?: number; redirectGuard?: RedirectGuard } = {},
 ) {
   let current = normalizeUrl(raw).toString();
   const maxHops = limits.maxHops ?? 10;
@@ -249,7 +251,13 @@ async function traceHeaders(
         headers,
       });
       if (!location || response.status < 300 || response.status >= 400) break;
-      current = new URL(location, current).toString();
+      const next = new URL(location, current);
+      if (hop + 1 < maxHops) {
+        await response.body?.cancel();
+        response = undefined;
+        await limits.redirectGuard?.(next, controller.signal);
+      }
+      current = next.toString();
     } catch (error) {
       if (controller.signal.aborted) throw new Error("Header trace timed out");
       throw error;
@@ -633,11 +641,12 @@ function normalizeHealthTarget(raw: string) {
 
 async function checkDomainHealth(raw: string) {
   const target = normalizeHealthTarget(raw);
+  const redirectGuard = createHealthRedirectGuard(new URL(target.url));
   return runDomainHealthChecks(target, {
-    status: () => checkStatus(target.url, 5_500),
+    status: () => checkStatus(target.url, 5_500, redirectGuard),
     dns: () => lookupHealthDns(target.domain),
     tls: () => checkSsl(target.url, 5_500),
-    headers: () => traceHeaders(target.url, { maxHops: 4, timeoutMs: 2_500, totalTimeoutMs: 5_500 }),
+    headers: () => traceHeaders(target.url, { maxHops: 4, timeoutMs: 2_500, totalTimeoutMs: 5_500, redirectGuard }),
     mail: () => lookupHealthMail(target.domain),
     siteFiles: () => lookupSiteFiles(target.url, { maxHops: 2, timeoutMs: 2_500, totalTimeoutMs: 5_500 }),
   });

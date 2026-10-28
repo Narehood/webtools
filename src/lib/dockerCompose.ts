@@ -385,12 +385,13 @@ function tokenizeShell(input: string, escapeLiteralDollars: boolean): ShellToken
     if (char === "\\") {
       const next = source[index + 1];
       if (next === undefined) throw new Error("The command ends with an unfinished escape");
-      if (/\s/.test(next) || next === "\\" || next === "'" || next === '"') {
-        token += next;
-        index += 1;
+      if (next === "$") {
+        literalDollarCount += 1;
+        token += escapeLiteralDollars ? "$$" : "$";
       } else {
-        token += char;
+        token += next;
       }
+      index += 1;
       started = true;
       continue;
     }

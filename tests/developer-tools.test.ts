@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parse as parseYaml } from "yaml";
-import { dockerRunToCompose, MAX_DOCKER_RUN_BYTES, tokenizeShellCommand } from "../src/lib/dockerCompose.ts";
+import { dockerRunToCompose, MAX_DOCKER_RUN_BYTES, tokenizeShellCommand, tokenizeShellCommandDetailed } from "../src/lib/dockerCompose.ts";
 import { diffJsonText, formatJsonDiffValue } from "../src/lib/jsonDiff.ts";
 import { buildEditableUrl, parseEditableUrl } from "../src/lib/urlInspector.ts";
 
@@ -10,6 +10,27 @@ type ComposeDocument = {
   networks?: Record<string, unknown>;
   volumes?: Record<string, unknown>;
 };
+
+test("docker escapes unquoted characters and preserves literal dollars through Compose", () => {
+  const cases = [
+    { argument: "FOO=\\$BAR", expected: "FOO=$$BAR" },
+    { argument: '"FOO=\\$BAR"', expected: "FOO=$$BAR" },
+    { argument: "'FOO=\\$BAR'", expected: "FOO=\\$$BAR" },
+    { argument: "FOO=hello\\ world", expected: "FOO=hello world" },
+  ];
+  for (const { argument, expected } of cases) {
+    const input = "docker run -e " + argument + " alpine";
+    const result = dockerRunToCompose(input);
+    const service = (parseYaml(result.yaml) as ComposeDocument).services.alpine;
+    assert.deepEqual(service.environment, [expected], argument);
+    const detailed = tokenizeShellCommandDetailed(input);
+    assert.equal(detailed.variableReferenceCount, 0, argument);
+    assert.equal(detailed.literalDollarCount, argument.includes("$") ? 1 : 0, argument);
+  }
+  const named = dockerRunToCompose("docker run --name web\\-app alpine");
+  assert.equal((parseYaml(named.yaml) as ComposeDocument).services["web-app"].container_name, "web-app");
+  assert.deepEqual(tokenizeShellCommand("docker run -e FOO=\\$BAR alpine"), ["docker", "run", "-e", "FOO=$BAR", "alpine"]);
+});
 
 test("docker run conversion preserves quoting, flags, command arguments, and external resources", () => {
   const input = `docker run -dit --rm \\

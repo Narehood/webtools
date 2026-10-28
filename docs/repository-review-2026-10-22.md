@@ -2,7 +2,9 @@
 
 Reviewed October 22, 2026, against the current working tree on `container-version-tags`, based on commit `fd5819b54f4ba0152a49af6f0a79ae10296efc7e`. This includes the existing modified and untracked application files, not just the committed version. The initial review left application code unchanged; the authorized fixes described below are now applied in this working tree.
 
-WebTools builds successfully and all **132 automated tests pass**. Claude Opus 5.5 at **xhigh** independently verified all eight findings. Its severity review changed R1 from P1 to P2 and R2, R4, R5, and R7 from P2 to P3: the verified totals are **three P2 and five P3 findings**. All eight now have implementation fixes. Independent Codex reviewers approved the final numeric and publishing corrections with no blockers. Container publishing still needs verification on a real release. The original browser review loaded all 107 catalog tools without uncaught page errors.
+WebTools builds successfully and all **149 automated tests pass**. Claude Opus 5.5 at **xhigh** independently verified all eight findings. Its severity review changed R1 from P1 to P2 and R2, R4, R5, and R7 from P2 to P3: the verified totals are **three P2 and five P3 findings**. All eight now have implementation fixes. Independent Codex reviewers approved the final numeric and publishing corrections with no blockers. Container publishing still needs verification on a real release. The original browser review loaded all 107 catalog tools without uncaught page errors.
+
+The fixes are prepared on `fix/repository-review-findings`, based on current `main` commit `89a31e342ea0010a374005f68dd9e690368e0a56` (v0.4.1). This integration preserves the newer security updates, photo color-analysis cache, and measurement endpoints. The original working tree remains untouched. The evidence and original line references below still describe the initial review snapshot.
 
 ## Findings at a glance
 
@@ -79,7 +81,7 @@ The CSV / YAML / JSON page directly combines YAML parsing with `JSON.stringify`.
 
 **P3 Low.** Locations: [server/photoJobs.ts](../server/photoJobs.ts#L174), lines 174–177 and [308–321](../server/photoJobs.ts#L308); [server/photoWorker.ts](../server/photoWorker.ts#L12), full-resolution decoding.
 
-**Implementation:** `server/photoJobs.ts` queues CPU worker renders in FIFO order with capacity one for the process. Batches acquire a slot once per photo, so queued edits can run between photos. Workers settle only after exit, including failures. A separate batch set enforces the one-batch rule while per-job mutation locks stay in place. Four injected-render regression tests cover concurrent edits, batch/edit interleaving, batch start during another job's edit, and failure recovery. All four fail when the slot is removed. Main-thread Sharp preprocessing and preview generation can still overlap a worker; this is a worker-count bound, not a total image-memory bound. A hung worker can stall the shared queue; no new worker timeout was introduced.
+**Implementation:** `server/photoJobs.ts` queues batch renders, manual-edit renders, and review measurements in FIFO order with capacity one for the process. Batches acquire a slot once per photo, so queued edits can run between photos. Workers settle only after exit, including failures. A separate batch set enforces the one-batch rule while per-job mutation locks stay in place. Five regression tests cover concurrent edits, batch/edit interleaving, batch start during another job's edit, failure recovery, and measurements queued behind renders across store instances. Cached analysis remains available without a CPU slot. The original four render cases fail when the slot is removed; bypassing the measurement queue also triggers its regression test. Test cleanup waits for pending work and the upstream mutation-lock release. Main-thread Sharp preprocessing and preview generation can still overlap a worker; this is a worker-count bound, not a total image-memory bound. A hung worker can stall the shared queue; no new worker timeout was introduced.
 
 Batch processing refuses to start while another job is active, but manual editing checks only whether the same job ID is active. Editing different jobs concurrently starts multiple full-resolution image workers. A manual edit on another job can also overlap a running batch.
 
@@ -161,7 +163,7 @@ The decoder performs separate replacement passes for numeric references and name
 
 | Check | Result | Scope |
 | --- | --- | --- |
-| `npm test` after fixes | 132 passed, 0 failed, 0 skipped | 14 test files; 12 new regression tests |
+| `npm test` on the PR branch | 149 passed, 0 failed, 0 skipped | 17 test files; 13 new regression tests against current main |
 | `npm run build` | Passed | TypeScript project checks and Vite production build |
 | `npm audit --json` | 0 known vulnerabilities reported | Current lockfile and registry response |
 | Production server | Started successfully | Node 24.22.1, isolated temporary photo storage |
@@ -209,10 +211,10 @@ Opus 5.5 xhigh verified all eight original findings, implemented the photo queue
 
 At the user's direction, two independent Codex reviewers completed the remaining reviews using gpt-6.1-sol with xhigh reasoning. Both approved their corrections with no actionable blockers: R3 passed three focused regression tests plus 797 scratch assertions; R5 passed configuration assertions and review against current GitHub documentation and metadata-action v6 source. These approvals close the outstanding independent-review checks.
 
-The full local suite remains at 132 passing tests, and the production build passed after the code corrections. No application changes were made during final review, so those checks were not repeated. Original reproductions remain in this report to make each fix reviewable. Live container publishing still needs a real-release check.
+The initial fixed working tree passed 132 tests and its production build. For PR preparation, the fixes were merged onto current main v0.4.1 in an isolated worktree. The photo queue was extended to cover the newer full-resolution measurement workers while retaining cached color analysis and mutation-lock cleanup. The resulting PR branch passes 149 tests across 17 files, its TypeScript/Vite production build, and all nine mocked-registry publishing scenarios. The photo suite passes 19 tests, including the additional measurement-queue case. An independent Codex review approved the final staged integration against `89a31e3` with no actionable findings, confirming shared worker scheduling, exit settlement, lock cleanup, cached-analysis behavior, and API compatibility. Original reproductions remain in this report to make each fix reviewable. Live container publishing still needs a real-release check.
 
 ## Limits of this review
 
 Docker was not installed in this environment, so the final Alpine image and Compose/Portainer startup were inspected but not executed. The CI publishing race was not exercised against GHCR. Live paid OpenAI model access and request compatibility were not tested; existing cloud-path tests use fixtures or injected providers. No broad external-host scan, load test, full accessibility audit, or cross-browser/device matrix was performed. Third-party dependency internals and every generated dataset record were not audited individually.
 
-Original line references apply to the pre-fix review snapshot. The authorized implementation fixes are applied, existing local work is preserved, and no commits, deployments, registry mutations, or pull requests were made.
+Original line references apply to the pre-fix review snapshot. The reviewed fixes are prepared on an isolated PR branch against v0.4.1; the original local work is preserved. No deployment or registry mutation was performed during local review and validation.

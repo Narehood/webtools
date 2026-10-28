@@ -14,6 +14,7 @@ import { archiveEntries, extractPhoto, photoDownload } from "../server/photoArch
 import { handlePhotoApi } from "../server/photoApi.ts";
 import { CloudPhotoError, photoCloudRequest, parsePhotoAssessment } from "../server/photoCloud.ts";
 import { DEFAULT_REPAIR_OPTIONS, defaultManualEdit, editedPhotoPath, safePhotoPath, type PhotoRepairJob } from "../src/lib/photoRepair.ts";
+import { analyzeColorCast, correctPixels, sampleSpot, withNeutralSpot } from "../src/lib/photoColor.ts";
 
 async function zipBytes(files: [string, Buffer][], zip64 = false) {
   const zip = new ZipWriter();
@@ -43,15 +44,25 @@ async function loaded(store: PhotoJobStore, files: [string, Buffer][], zip64 = f
   return job;
 }
 
-async function finished(job: PhotoRepairJob) {
+async function finished(store: PhotoJobStore, job: PhotoRepairJob) {
   const deadline = Date.now() + 25_000;
-  while (job.state === "running" && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.notEqual(job.state, "running", "job must settle");
-  // The run's finally handler releases its mutation lock immediately after the persisted state.
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  while (Date.now() < deadline) {
+    if (job.state !== "running") {
+      try {
+        // State changes before final writes and cleanup release the mutation lock.
+        const release = store.beginDownload(job.id);
+        release();
+        return;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("finish the current photo/download")) throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  assert.fail("job must settle and release its mutation lock");
 }
 
-/** Lets queued promise work run. Manual edits reach the render slot without I/O, so this is enough for them. */
+/** Lets queued promise work run. */
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Stands in for the CPU worker: writes a small real image, records overlap, and can hold renders at a gate. */
@@ -62,8 +73,12 @@ function renderProbe() {
     running: 0, peak: 0, calls: 0, hold: false, failNext: false, jobs: [] as string[],
     /** Resolves once `count` renders have begun. */
     started(count: number) {
-      return new Promise<void>((resolve) => {
-        const check = () => { if (probe.calls >= count) resolve(); else arrivals.push(check); };
+      return new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Render ${count} did not start`)), 5_000);
+        const check = () => {
+          if (probe.calls >= count) { clearTimeout(timeout); resolve(); }
+          else arrivals.push(check);
+        };
         check();
       });
     },
@@ -86,12 +101,29 @@ function renderProbe() {
 
 async function processed(store: PhotoJobStore, photo: Buffer, name: string) {
   const job = await loaded(store, [[name, photo]]);
-  await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(job);
+  await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(store, job);
   assert.equal(job.state, "complete");
   return job;
 }
 
 function brighter() { const edit = defaultManualEdit(); edit.adjustments.brightness = 10; return edit; }
+
+async function renderFixture() {
+  const { root, photo } = await fixture();
+  const probe = renderProbe();
+  const store = new PhotoJobStore(root, undefined, probe.render);
+  const pending: Promise<unknown>[] = [];
+  return {
+    root, photo, probe, store,
+    track<T>(task: Promise<T>) { pending.push(task.catch(() => {})); return task; },
+    async cleanup() {
+      probe.release();
+      await Promise.all(pending);
+      await Promise.all([...store.jobs.values()].map((job) => finished(store, job)));
+      await rm(root, { recursive: true, force: true });
+    },
+  };
+}
 
 test("safe edited paths preserve folders and resolve case-insensitive collisions", () => {
   const used = new Set<string>();
@@ -178,14 +210,14 @@ test("CPU trial, resume, broken-image isolation, original preservation, rotation
     const job = await loaded(store, [...Array.from({ length: 6 }, (_, i): [string, Buffer] => [`Roll/Scan ${i + 1}.jpg`, i === 0 ? exif : photo]), ["Roll/Scan 7.jpg", Buffer.from("broken image")], ["notes.txt", Buffer.from("preserve source")]]);
     const original = await readFile(store.archive(job.id));
     await store.start(job.id, DEFAULT_REPAIR_OPTIONS, 5, false, false);
-    await finished(job);
+    await finished(store, job);
     assert.equal(job.entries.filter((e) => e.status === "done").length, 5);
     assert.equal(job.state, "paused");
     assert.match(job.error || "", /trial/);
     assert.equal(job.entries[0].width, 64);
     assert.equal(job.entries[0].height, 96);
     await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
-    await finished(job);
+    await finished(store, job);
     assert.equal(job.state, "complete");
     assert.equal(job.entries.filter((e) => e.status === "done").length, 6);
     assert.equal(job.entries.filter((e) => e.status === "failed").length, 1);
@@ -213,7 +245,7 @@ test("manual edits render at full resolution from a retained base, persist, and 
     const store = new PhotoJobStore(root);
     const job = await loaded(store, [["roll/scan.jpg", photo]]);
     const options = { ...DEFAULT_REPAIR_OPTIONS, color: false, format: "png" as const };
-    await store.start(job.id, options, "all", false, false); await finished(job);
+    await store.start(job.id, options, "all", false, false); await finished(store, job);
     const entry = job.entries[0];
     const base = store.output(job, entry);
     const batchBytes = await readFile(base);
@@ -254,7 +286,7 @@ test("a failed manual render preserves the last saved result and releases its lo
   try {
     const store = new PhotoJobStore(root);
     const job = await loaded(store, [["scan.jpg", photo]]);
-    await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(job);
+    await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false); await finished(store, job);
     const entry = job.entries[0];
     const base = store.output(job, entry);
     const baseBytes = await readFile(base);
@@ -274,18 +306,111 @@ test("a failed manual render preserves the last saved result and releases its lo
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("manual edits on different jobs render one at a time and both finish", async () => {
-  const { root, photo } = await fixture();
-  const probe = renderProbe();
+test("review analysis and gray samples use the retained raster and match full-resolution saves", async () => {
+  const { root } = await fixture();
   try {
-    const store = new PhotoJobStore(root, undefined, probe.render);
+    const width = 2400, height = 1600, data = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const index = (y * width + x) * 4;
+      const grain = ((Math.imul(x + 19, y + 37) ^ Math.imul(x + 593, 15485863)) >>> 0) % 91 - 45;
+      const tone = 50 + 140 * x / width;
+      data[index] = Math.max(0, Math.min(255, tone + 40 + grain));
+      data[index + 1] = Math.max(0, Math.min(255, tone + 10 + grain));
+      data[index + 2] = Math.max(0, Math.min(255, tone * 0.65 + grain)); data[index + 3] = 255;
+      if (Math.abs(x - 1200) <= 6 && Math.abs(y - 800) <= 6) {
+        data[index] = 80; data[index + 1] = 120; data[index + 2] = 145;
+      }
+    }
+    const photo = await sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    const store = new PhotoJobStore(root);
+    const job = await loaded(store, [["grainy-scan.png", photo]]);
+    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, format: "png" }, "all", false, false); await finished(store, job);
+    const entry = job.entries[0], base = store.output(job, entry);
+    const full = await sharp(base).autoOrient().toColourspace("srgb").ensureAlpha().raw().toBuffer();
+    const pixels = { data: full, width, height };
+    const sample = await sharp(full, { raw: { width, height, channels: 4 } }).resize(1000, 1000, { fit: "inside", kernel: "nearest" }).raw().toBuffer({ resolveWithObject: true });
+    const expected = analyzeColorCast({ data: sample.data, width: sample.info.width, height: sample.info.height });
+    const neutral = { x: 0.5, y: 0.5 };
+    const measured = await store.measure(job.id, entry.id, neutral);
+    assert.deepEqual(measured.analysis, expected);
+    assert.deepEqual(measured.neutral, sampleSpot(pixels, neutral));
+    const preview = await sharp(store.preview(job.id, entry.id, "after")).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const previewPixels = { data: preview.data, width: preview.info.width, height: preview.info.height };
+    assert.notDeepEqual(analyzeColorCast(previewPixels).low, expected.low, "smoothed previews cannot supply the saved clip points");
+    assert.notDeepEqual(sampleSpot(previewPixels, neutral), measured.neutral, "small gray spots must be sampled before smoothing");
+    const cache = path.join(store.directory(job.id), `${entry.id}.color-analysis.json`);
+    const cachedAt = (await stat(cache)).mtimeMs;
+    const recovered = new PhotoJobStore(root);
+    assert.deepEqual((await recovered.measure(job.id, entry.id, null)).analysis, expected);
+    assert.equal((await stat(cache)).mtimeMs, cachedAt, "analysis survives restarts without recomputing");
+    await assert.rejects(store.measure(job.id, entry.id, { x: 2, y: 0 }), /inside/);
+    const edit = defaultManualEdit(); edit.adjustments.strength = 100; edit.neutral = neutral; edit.rotation = 90;
+    const corrected = correctPixels(full, withNeutralSpot(expected, pixels, neutral), edit.adjustments);
+    await store.edit(job.id, entry.id, edit, 0);
+    const expectedFile = await sharp(Buffer.from(corrected), { raw: { width, height, channels: 4 } }).rotate(90).flatten({ background: "white" }).raw().toBuffer();
+    const actualFile = await sharp(store.output(job, entry)).raw().toBuffer();
+    assert.equal(actualFile.length, expectedFile.length);
+    let maximumError = 0, totalError = 0;
+    for (let index = 0; index < actualFile.length; index++) {
+      const difference = Math.abs(actualFile[index] - expectedFile[index]);
+      maximumError = Math.max(maximumError, difference); totalError += difference;
+    }
+    assert.equal(maximumError, 0, `saved pixels use the preview's cached levels and original gray sample (mean ${totalError / actualFile.length})`);
+    assert.equal((await sharp(store.output(job, entry)).metadata()).isPalette, false, "PNG must not quantize restored colors");
+    assert.deepEqual((await store.measure(job.id, entry.id, null)).analysis, expected, "manual saves never replace the analysis base");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("failed first cloud assessments and repairs allow CPU fallback using the same uploaded archive", async () => {
+  const { root, photo } = await fixture();
+  const oldKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-only";
+  try {
+    for (const failure of ["assessment", "repair", "interrupted"] as const) {
+      let requests = 0;
+      const cloud = {
+        assess: async () => {
+          requests++;
+          if (failure === "assessment") throw new CloudPhotoError("assessment unavailable");
+          return { rotation: 90 as const, confidence: 1, damaged: true, note: "Old prepared raster" };
+        },
+        restore: async (): Promise<Buffer> => { requests++; throw new CloudPhotoError("repair unavailable"); },
+      };
+      let store = new PhotoJobStore(path.join(root, failure), cloud);
+      let job = await loaded(store, [["a.jpg", photo], ["b.jpg", photo]]);
+      await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, orientation: "scene", repair: "auto" }, "all", false, true); await finished(store, job);
+      assert.equal(job.entries.filter((entry) => entry.status === "done").length, 0);
+      assert.equal(job.state, "paused");
+      if (failure === "interrupted") {
+        job.state = "running"; job.entries[0].status = "processing"; job.entries[0].cloudInFlight = true;
+        await store.save(job);
+        store = new PhotoJobStore(path.join(root, failure), cloud); job = await store.get(job.id);
+      }
+      const archive = await readFile(store.archive(job.id)), attempts = requests;
+      const fallback = { ...DEFAULT_REPAIR_OPTIONS, color: false, strength: 35, orientation: "metadata" as const, repair: "off" as const, format: "png" as const };
+      await store.start(job.id, fallback, "all", true, false); await finished(store, job);
+      assert.equal(job.state, "complete"); assert.equal(requests, attempts, "CPU fallback must make no more paid requests");
+      assert.ok(job.entries.every((entry) => entry.status === "done" && entry.output.endsWith("_edited.png") && !entry.analysis && !entry.note && !entry.repaired));
+      assert.deepEqual(await readFile(store.archive(job.id)), archive, "reuse the uploaded ZIP");
+      assert.deepEqual(await sharp(store.output(job, job.entries[0])).raw().toBuffer(), await sharp(photo).raw().toBuffer());
+      await assert.rejects(store.start(job.id, { ...fallback, color: true }, "all", false, false), /locked/);
+    }
+  } finally {
+    if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("manual edits on different jobs render one at a time and both finish", async () => {
+  const { photo, probe, store, track, cleanup } = await renderFixture();
+  try {
     const first = await processed(store, photo, "a.jpg");
     const second = await processed(store, photo, "b.jpg");
     probe.hold = true;
     const calls = probe.calls;
-    const editing = [store.edit(first.id, 0, brighter(), 0)];
+    const editing = [track(store.edit(first.id, 0, brighter(), 0))];
     await probe.started(calls + 1);
-    editing.push(store.edit(second.id, 0, brighter(), 0));
+    editing.push(track(store.edit(second.id, 0, brighter(), 0)));
     await turn();
     assert.equal(probe.running, 1, "the second job's edit must wait for the render slot");
     assert.equal(probe.calls, calls + 1);
@@ -293,14 +418,12 @@ test("manual edits on different jobs render one at a time and both finish", asyn
     await Promise.all(editing);
     assert.equal(probe.peak, 1);
     assert.equal(first.entries[0].editVersion, 1); assert.equal(second.entries[0].editVersion, 1);
-  } finally { probe.release(); await rm(root, { recursive: true, force: true }); }
+  } finally { await cleanup(); }
 });
 
 test("a manual edit queues behind a batch render and runs before the batch's next photo", async () => {
-  const { root, photo } = await fixture();
-  const probe = renderProbe();
+  const { photo, probe, store, track, cleanup } = await renderFixture();
   try {
-    const store = new PhotoJobStore(root, undefined, probe.render);
     const done = await processed(store, photo, "a.jpg");
     const batch = await loaded(store, [["b.jpg", photo], ["c.jpg", photo]]);
     probe.hold = true;
@@ -308,27 +431,25 @@ test("a manual edit queues behind a batch render and runs before the batch's nex
     await store.start(batch.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
     await probe.started(calls + 1);
     await assert.rejects(store.start(done.id, DEFAULT_REPAIR_OPTIONS, "all", false, false), /Another photo job/, "only one batch runs at a time");
-    const editing = store.edit(done.id, 0, brighter(), 0);
+    const editing = track(store.edit(done.id, 0, brighter(), 0));
     await turn();
     assert.equal(probe.running, 1, "the edit must wait for the batch render");
     probe.release();
-    await editing; await finished(batch);
+    await editing; await finished(store, batch);
     assert.equal(probe.peak, 1);
     assert.deepEqual(probe.jobs.slice(calls), [batch.id, done.id, batch.id], "the slot is released between batch photos, in arrival order");
     assert.equal(batch.state, "complete"); assert.equal(done.entries[0].editVersion, 1);
-  } finally { probe.release(); await rm(root, { recursive: true, force: true }); }
+  } finally { await cleanup(); }
 });
 
 test("a batch can start while another job is being edited, and its render waits for the slot", async () => {
-  const { root, photo } = await fixture();
-  const probe = renderProbe();
+  const { photo, probe, store, track, cleanup } = await renderFixture();
   try {
-    const store = new PhotoJobStore(root, undefined, probe.render);
     const edited = await processed(store, photo, "a.jpg");
     const batch = await loaded(store, [["b.jpg", photo]]);
     probe.hold = true;
     const calls = probe.calls;
-    const editing = store.edit(edited.id, 0, brighter(), 0);
+    const editing = track(store.edit(edited.id, 0, brighter(), 0));
     await probe.started(calls + 1);
     await store.start(batch.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
     await assert.rejects(store.start(edited.id, DEFAULT_REPAIR_OPTIONS, "all", false, false), /Pause/, "the edited job keeps its own lock");
@@ -338,25 +459,23 @@ test("a batch can start while another job is being edited, and its render waits 
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(probe.calls, calls + 1, "the batch render must wait for the edit");
     probe.release();
-    await editing; await finished(batch);
+    await editing; await finished(store, batch);
     assert.equal(probe.peak, 1);
     assert.equal(batch.state, "complete"); assert.equal(edited.entries[0].editVersion, 1);
-  } finally { probe.release(); await rm(root, { recursive: true, force: true }); }
+  } finally { await cleanup(); }
 });
 
 test("a failed render releases the slot to the next queued edit", async () => {
-  const { root, photo } = await fixture();
-  const probe = renderProbe();
+  const { photo, probe, store, track, cleanup } = await renderFixture();
   try {
-    const store = new PhotoJobStore(root, undefined, probe.render);
     const first = await processed(store, photo, "a.jpg");
     const second = await processed(store, photo, "b.jpg");
     const previous = JSON.stringify(first.entries[0]);
     probe.hold = true; probe.failNext = true;
     const calls = probe.calls;
-    const failing = store.edit(first.id, 0, brighter(), 0);
+    const failing = track(store.edit(first.id, 0, brighter(), 0));
     await probe.started(calls + 1);
-    const waiting = store.edit(second.id, 0, brighter(), 0);
+    const waiting = track(store.edit(second.id, 0, brighter(), 0));
     await turn();
     assert.equal(probe.running, 1);
     probe.release();
@@ -367,7 +486,36 @@ test("a failed render releases the slot to the next queued edit", async () => {
     await store.edit(first.id, 0, brighter(), 0);
     assert.equal(first.entries[0].editVersion, 1);
     assert.equal(probe.peak, 1);
-  } finally { probe.release(); await rm(root, { recursive: true, force: true }); }
+  } finally { await cleanup(); }
+});
+
+test("review measurements in another store wait for renders while cached analysis stays available", async () => {
+  const { root, photo, probe, store, track, cleanup } = await renderFixture();
+  try {
+    const edited = await processed(store, photo, "edit.jpg");
+    const measured = await processed(store, photo, "measure.jpg");
+    const uncached = await processed(store, photo, "uncached.jpg");
+    const review = new PhotoJobStore(root);
+    const cached = await review.measure(measured.id, 0, null);
+    probe.hold = true;
+    const calls = probe.calls;
+    const editing = track(store.edit(edited.id, 0, brighter(), 0));
+    await probe.started(calls + 1);
+    assert.deepEqual(await review.measure(measured.id, 0, null), cached, "reading cached analysis does not acquire a CPU slot");
+    let sampled = false, analyzed = false;
+    const sampling = track(review.measure(measured.id, 0, { x: 0.5, y: 0.5 }).then((value) => { sampled = true; return value; }));
+    const analyzing = track(review.measure(uncached.id, 0, null).then((value) => { analyzed = true; return value; }));
+    // The render gate remains closed while real measurement workers would otherwise finish these tiny images.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(sampled, false, "even with cached analysis, a full-resolution gray sample must wait for the render");
+    assert.equal(analyzed, false, "uncached full-resolution analysis must also wait for the render");
+    probe.release();
+    const [sample, analysis] = await Promise.all([sampling, analyzing, editing]);
+    assert.deepEqual(sample.analysis, cached.analysis);
+    const full = await sharp(review.output(measured, measured.entries[0])).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    assert.deepEqual(sample.neutral, sampleSpot({ data: full.data, width: full.info.width, height: full.info.height }, { x: 0.5, y: 0.5 }));
+    assert.deepEqual(analysis, cached);
+  } finally { await cleanup(); }
 });
 
 test("cloud damage selection, uncertain orientation, hard repair limit and cached assessment on resume", async () => {
@@ -387,7 +535,7 @@ test("cloud damage selection, uncertain orientation, hard repair limit and cache
     });
     const job = await loaded(store, [["a.jpg", photo], ["b.jpg", photo], ["c.jpg", photo]]);
     const options = { ...DEFAULT_REPAIR_OPTIONS, repair: "auto" as const, orientation: "scene" as const, maxRepairs: 1 };
-    await store.start(job.id, options, "all", false, true); await finished(job);
+    await store.start(job.id, options, "all", false, true); await finished(store, job);
     assert.equal(job.state, "paused"); assert.equal(repairs, 1); assert.equal(assessments, 3);
     assert.equal(job.entries[0].rotation, 90, "confident scene rotation is applied");
     assert.equal(job.entries[0].width, 64); assert.equal(job.entries[0].height, 96);
@@ -395,7 +543,7 @@ test("cloud damage selection, uncertain orientation, hard repair limit and cache
     assert.equal(job.entries[1].rotation, 0, "uncertain scene is not auto-rotated");
     assert.equal(job.entries[1].review, true); assert.equal(job.entries[2].status, "pending");
     assert.equal(job.repairAttempts, 1);
-    await store.start(job.id, { ...options, maxRepairs: 2 }, "all", false, true); await finished(job);
+    await store.start(job.id, { ...options, maxRepairs: 2 }, "all", false, true); await finished(store, job);
     assert.equal(job.state, "complete"); assert.equal(repairs, 2); assert.equal(assessments, 3, "saved assessments must not be charged again");
     await store.approve(job.id, job.entries[1].id);
     assert.equal(job.entries[1].review, false);
@@ -414,7 +562,7 @@ test("cloud errors pause the batch without retrying paid requests; restart flags
     let repairs = 0;
     const store = new PhotoJobStore(root, { assess: async () => { throw new Error("not used"); }, restore: async () => { repairs++; throw new CloudPhotoError("quota exhausted"); } });
     const job = await loaded(store, [["a.jpg", photo], ["b.jpg", photo]]);
-    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, repair: "all" }, "all", false, true); await finished(job);
+    await store.start(job.id, { ...DEFAULT_REPAIR_OPTIONS, repair: "all" }, "all", false, true); await finished(store, job);
     assert.equal(repairs, 1); assert.equal(job.state, "paused"); assert.equal(job.entries[0].status, "failed");
     assert.equal(job.entries[1].status, "pending");
     job.state = "running"; job.entries[1].status = "processing"; job.entries[1].cloudInFlight = true;
@@ -446,7 +594,7 @@ test("pause finishes the current paid photo and prevents the next request; activ
     assert.throws(() => store.beginDownload(job.id), /Pause/);
     await store.pause(job.id);
     release(photo);
-    await finished(job);
+    await finished(store, job);
     assert.equal(job.state, "paused");
     assert.equal(job.entries[0].status, "done");
     assert.equal(job.entries[1].status, "pending");
@@ -492,8 +640,11 @@ test("HTTP API streams upload/download and refuses cross-site commands and inval
     assert.equal((await fetch(`${base}/${job.id}/upload?offset=0`, { method: "PUT", body: bytes })).status, 200);
     assert.equal((await fetch(`${base}/${job.id}/finalize`, { method: "POST" })).status, 200);
     await store.start(job.id, DEFAULT_REPAIR_OPTIONS, "all", false, false);
-    await finished(await store.get(job.id));
+    await finished(store, await store.get(job.id));
     const sourcePreview = await (await fetch(`${base}/${job.id}/photos/0/edit-base`)).arrayBuffer();
+    const measurement = await fetch(`${base}/${job.id}/photos/0/measure`, { method: "POST", body: JSON.stringify({ neutral: { x: 0.5, y: 0.5 } }) });
+    assert.equal(measurement.status, 200);
+    assert.deepEqual(await measurement.json(), await store.measure(job.id, 0, { x: 0.5, y: 0.5 }));
     const edit = defaultManualEdit(); edit.rotation = 90; edit.adjustments.brightness = 15;
     const edited = await fetch(`${base}/${job.id}/photos/0/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edit, version: 0 }) });
     assert.equal(edited.status, 200);

@@ -33,7 +33,7 @@ export function PhotoRepairTool() {
   const fileInput = useRef<HTMLInputElement>(null);
   const selectedJobId = job?.id;
   const running = job?.state === "running";
-  const locked = Boolean(job && (job.entries.some((e) => e.status !== "pending") || job.analysisAttempts || job.repairAttempts));
+  const locked = Boolean(job?.entries.some((e) => e.status === "done"));
   const cloud = usesCloud(options);
   const done = job?.entries.filter((e) => e.status === "done").length || 0;
   const failed = job?.entries.filter((e) => e.status === "failed").length || 0;
@@ -179,18 +179,18 @@ export function PhotoRepairTool() {
         <section className="panel stack">
           <h2>2. Choose the restoration</h2>
           <div className="repair-options">
-            <label className="field"><span>Color correction</span><select disabled={locked || Boolean(busy)} value={options.color ? "on" : "off"} onChange={(e) => change("color", e.target.value === "on")}>
+            <label className="field"><span>Color correction</span><select disabled={locked || running || Boolean(busy)} value={options.color ? "on" : "off"} onChange={(e) => change("color", e.target.value === "on")}>
               <option value="on">Auto balance · per photo</option><option value="off">Keep original color</option></select></label>
-            <label className="field"><span>Correction strength · {options.strength}%</span><input type="range" min="0" max="100" value={options.strength} disabled={locked || !options.color || Boolean(busy)} onChange={(e) => change("strength", Number(e.target.value))} /></label>
-            <label className="field"><span>Orientation</span><select disabled={locked || Boolean(busy)} value={options.orientation} onChange={(e) => change("orientation", e.target.value as RepairOptions["orientation"])}>
+            <label className="field"><span>Correction strength · {options.strength}%</span><input type="range" min="0" max="100" value={options.strength} disabled={locked || running || !options.color || Boolean(busy)} onChange={(e) => change("strength", Number(e.target.value))} /></label>
+            <label className="field"><span>Orientation</span><select disabled={locked || running || Boolean(busy)} value={options.orientation} onChange={(e) => change("orientation", e.target.value as RepairOptions["orientation"])}>
               <option value="metadata">EXIF metadata · CPU</option><option value="scene" disabled={!config?.cloudAvailable}>Detect upright · cloud AI</option></select></label>
-            <label className="field"><span>Scratches, creases and negative damage</span><select disabled={locked || Boolean(busy)} value={options.repair} onChange={(e) => change("repair", e.target.value as RepairOptions["repair"])}>
+            <label className="field"><span>Scratches, creases and negative damage</span><select disabled={locked || running || Boolean(busy)} value={options.repair} onChange={(e) => change("repair", e.target.value as RepairOptions["repair"])}>
               <option value="off">Skip physical repair</option><option value="auto" disabled={!config?.cloudAvailable}>Detected damage · AI</option><option value="all" disabled={!config?.cloudAvailable}>Every photo · cloud AI</option></select></label>
-            <label className="field"><span>Output format</span><select disabled={locked || Boolean(busy)} value={options.format} onChange={(e) => change("format", e.target.value as RepairOptions["format"])}>
+            <label className="field"><span>Output format</span><select disabled={locked || running || Boolean(busy)} value={options.format} onChange={(e) => change("format", e.target.value as RepairOptions["format"])}>
               <option value="jpeg">JPEG · 95% quality</option><option value="png">PNG · lossless encoding</option><option value="webp">WebP · 95% quality</option></select></label>
             <label className="field"><span>Maximum paid repair attempts per job</span><input type="number" min="0" max="5000" step="1" value={options.maxRepairs} disabled={Boolean(busy) || running} onChange={(e) => change("maxRepairs", Number(e.target.value))} /></label>
           </div>
-          {locked && <p className="repair-muted">Settings stay fixed after the first run so the batch is consistent. You can raise the repair limit. Use a new job to change the other settings.</p>}
+          {locked && <p className="repair-muted">Settings stay fixed after the first completed photo so the batch is consistent. You can raise the repair limit. Use a new job to change the other settings.</p>}
           <div className="repair-explainer">
             <strong>{config?.cloudAvailable ? "Cloud AI is connected" : "CPU processing is ready; cloud AI needs setup"}</strong>
             <p>Color correction runs on this server and keeps original pixel dimensions. EXIF orientation follows saved metadata; scene detection can recognize sideways scans without it. Uncertain rotations are left unchanged and flagged for review.</p>
@@ -200,7 +200,7 @@ export function PhotoRepairTool() {
           {cloud && <label className="check"><input type="checkbox" checked={cloudConsent} disabled={running} onChange={(e) => setCloudConsent(e.target.checked)} />Allow paid cloud requests for this run: {options.repair !== "off" ? `up to ${Math.max(0, options.maxRepairs - (job?.repairAttempts || 0))} more repair attempts` : "no image repairs"}{options.orientation === "scene" || options.repair === "auto" ? ", plus scene/damage assessment for each photo that needs it" : ""}.</label>}
           {failed > 0 && <label className="check"><input type="checkbox" checked={retry} onChange={(e) => setRetry(e.target.checked)} disabled={running} />Retry {failed} failed photo{failed === 1 ? "" : "s"}. Paid requests may be charged again.</label>}
           <div className="row">
-            {!locked && <button className="btn ghost" disabled={!job || !pending || Boolean(busy) || running || reviewDirty || job.state !== "ready"} onClick={() => void act("start", { options: { ...options, color: false, orientation: "metadata", repair: "off" }, limit: "all", retry: false, cloudConsent: false })}>Prepare for manual review</button>}
+            {!locked && <button className="btn ghost" disabled={!job || !(pending || (retry && failed)) || Boolean(busy) || running || reviewDirty || !["ready", "paused", "complete"].includes(job.state)} onClick={() => void act("start", { options: { ...options, color: false, orientation: "metadata", repair: "off" }, limit: "all", retry, cloudConsent: false })}>Prepare for manual review</button>}
             <button className="btn" disabled={!canStart} onClick={() => void act("start", { options, limit: 5, retry, cloudConsent })}>Try 5 photos</button>
             <button className="btn ghost" disabled={!canStart} onClick={() => void act("start", { options, limit: "all", retry, cloudConsent })}>Process remaining photos</button>
             {running && <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void act("pause")}>Pause after current photo</button>}

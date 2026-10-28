@@ -8,7 +8,7 @@ Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and te
 
 ## IT-Tools comparison and additions
 
-The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page. This adds **47 pages**; with bulk photo repair and the interest calculator, this checkout's catalog contains **108 tools**.
+The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page across **47 new comparison pages**. Seven accompanying tools—QR reader, PDF merge/split, image color picker, favicon generator, domain health, Docker run to Compose, and date calculator—bring the complete catalog to **106 tools**. Bulk photo repair, the interest calculator, and the PDF editor add three more pages, for **109 tools**.
 
 | Area | New tools |
 | --- | --- |
@@ -23,7 +23,7 @@ The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.de
 
 Existing tools now include additional hash/HMAC algorithms, UUID versions 1/3/4/5/6/7, token character-group controls, integer bases 2–64, CSS color names, OTP validation, cron generation, QR colors, additional temperature scales, and Markdown-to-HTML export. Existing URLs remain available.
 
-The additions run in the browser. Encryption uses a WebTools AES-256-GCM JSON envelope with PBKDF2-SHA256 (600,000 iterations), so it does not decode other sites' legacy ciphertext formats. RSA, PDF cryptographic verification, and camera access require HTTPS or localhost. PDF verification checks detached CMS signatures against signed byte ranges and reports later unsigned bytes; it does not validate certificate trust, revocation, or timestamp authorities. The HTML preview is sandboxed with scripts and external requests disabled. The benchmark tool compares supplied timing samples.
+The 47 comparison pages run in the browser. Encryption uses a WebTools AES-256-GCM JSON envelope with PBKDF2-SHA256 (600,000 iterations), so it does not decode other sites' legacy ciphertext formats. RSA, PDF cryptographic verification, and camera access require HTTPS or localhost. PDF verification checks detached CMS signatures against signed byte ranges and reports later unsigned bytes; it does not validate certificate trust, revocation, or timestamp authorities. The HTML preview is sandboxed with scripts and external requests disabled. The benchmark tool compares supplied timing samples.
 
 MAC lookup uses a bundled [IEEE registry](https://standards.ieee.org/products-programs/regauth/) snapshot, including MA-L, MA-M, and MA-S prefixes. Emoji names and characters come from [Unicode's emoji data](https://unicode.org/Public/emoji/latest/emoji-test.txt), under the [Unicode data license](https://www.unicode.org/license.txt). Both datasets load only when needed. Refresh them with `node scripts/update-utility-data.mjs`, then rebuild. Registry updates require internet access; ordinary lookups do not send addresses to a third party.
 
@@ -66,7 +66,7 @@ Optional environment variables in the stack UI (leave blank for defaults):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.1.1`, or a `sha-` tag for one build |
+| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.4.3`, or a `sha-` tag for one build |
 | `WEBTOOLS_PORT` | `8080` | Host port |
 | `WEBTOOLS_BIND` | `0.0.0.0` | Set `127.0.0.1` if only a tunnel should reach it |
 
@@ -86,7 +86,7 @@ docker build --pull --no-cache --build-arg VERSION="$(node -p "require('./packag
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The `package.json` version (currently `0.1.1`) is published once from `main`, or from a matching `v0.1.1` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The version in `package.json` is published once from `main`, or from a matching `v<version>` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ### Local development
 
@@ -99,7 +99,7 @@ npm run dev
 
 Needs Node 24.22.1 or newer in the Node 24 LTS line. `.nvmrc` selects 24.22.1; if you use a different Node manager, install that version before running `npm ci`. This is the [October 2026 security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), which fixes CVE-2026-111497 (Brotli) and updates Node's bundled CA trust store following the eMudhra compromise. Both Docker stages inherit a base that upgrades Alpine packages and requires `ca-certificates>=20261020-r0`. CI pulls the base image and builds without cached layers so OS security updates run on every build. Open [http://localhost:5173](http://localhost:5173).
 
-Run `npm run check:security` to verify the Node version and check that its bundled and effective CA stores exclude the removed roots. On Linux, the check also inspects `/etc/ssl/certs/ca-certificates.crt` when present. Container builds require that OS bundle, and containers repeat the check before serving requests; `npm start` also runs it. Custom trust anchors and other software's private CA bundles need their own review.
+Run `npm run check:security` to verify the Node version and check that its bundled and effective CA stores exclude the removed roots. On Linux, the check also inspects `/etc/ssl/certs/ca-certificates.crt` when present. The OS policy rejects emSign ECC Root CA - G3 and AAA Certificate Services. Node stores additionally reject the C1 and C3 roots removed by NSS; these remain permitted in the OS bundle, as they do in patched Debian/Ubuntu packages. Container builds require that OS bundle, and containers repeat the check before serving requests; `npm start` also runs it. Custom trust anchors and other software's private CA bundles need their own review.
 
 After publishing the updated image, recreate existing containers; restarting an old container does not install updates. For the pull-only Compose example:
 
@@ -180,9 +180,10 @@ Create 16, 32, 48, 180, 192, and 512 pixel PNGs, a multi-size `favicon.ico`, `si
 Drop or paste a raster image to decode a QR code locally. The decoded content is copyable; HTTP(S) links can be opened explicitly. Supports the browser's raster formats, with a 20 MB file limit. Images containing several QR codes return the first code detected.
 
 **PDF editor**
-Open `/pdf-editor` for a local PDF viewer and markup workspace. Drag thumbnails to reorder pages, insert PDFs or blank pages, rotate, duplicate, remove, and export an entire document or the current page. Add movable text boxes, freehand drawing, highlights, rectangles, ovals, lines, arrows, and a reusable handwritten signature. Select markup to adjust its color, stroke, and dimensions. Undo/redo covers page edits, annotations, and form changes.
 
-Standard AcroForm text fields, checkboxes, choices, and radio groups can be filled from the Forms inspector. Filled forms and new markup are flattened into visible page content on download. This creates a new PDF: original document-level bookmarks and digital signatures are not retained. Signatures added here are handwritten marks, not certificate signatures. XFA and password-protected PDFs are unsupported. Added text uses Helvetica with Latin/WinAnsi characters; existing PDF text is displayed but not edited. Documents and signatures stay in memory in the current browser tab; download before leaving. Limits: 30 MB per file, 75 MB loaded, 200 pages. PDF.js and its fonts, CMaps, image decoders, and worker are bundled locally, with no third-party viewer requests.
+Open `/pdf-editor` for a local PDF viewer and markup workspace. Drag thumbnails to reorder pages, insert PDFs or blank pages, rotate, duplicate, remove, and export an entire document or the current page. Add movable, resizable text boxes, freehand drawing, highlights, rectangles, ovals, lines, arrows, and a reusable handwritten signature. Undo/redo covers page edits, annotations, and form changes.
+
+Standard AcroForm text fields, checkboxes, choices, and radio groups can be filled from the Forms inspector. Filled forms and new markup are flattened into visible page content on download. This creates a new PDF: original document-level bookmarks and digital signatures are not retained. Signatures added here are handwritten marks, not certificate signatures. XFA and password-protected PDFs are unsupported. Added text uses Helvetica with Latin/WinAnsi characters; existing PDF text is displayed but not edited. Documents and signatures stay in memory in the current browser tab; download before leaving. Limits: 30 MB per file, 75 MB loaded, 200 pages. PDF.js and its fonts, CMaps, image decoders, and worker are bundled locally.
 
 **PDF merge & split**  
 Add one or more PDFs, reorder files or individual pages, rotate pages, and download the whole result or just selected pages. Export different selections to split a document. Processing stays in this browser, with limits of 30 MB per file, 75 MB total, and 200 pages. Encrypted PDFs are not supported. Export creates a new page-based document; document-level features such as bookmarks, interactive forms, and digital signatures are not preserved as a complete document.
@@ -316,6 +317,8 @@ Simplify a width and height, then scale either side and keep the ratio.
 **Interest calculator**
 
 Open `/interest-calculator` under **Calculators** for compound savings, simple interest, and fixed-rate loan repayments. Choose a nominal annual rate or APY, daily through annual or continuous compounding, years/months/days, and a 365- or 360-day basis. Optional recurring deposits have their own frequency, beginning/end timing, and annual increase. Compare a second rate and estimate tax deducted at maturity plus inflation-adjusted purchasing power. Loan mode supports payment frequency and extra principal payments, with interest and time saved. Eight display currencies, live charts, monthly/yearly savings tables, a full repayment schedule, copyable summaries, examples, and CSV downloads run entirely in the browser. Currency selection does not perform exchange-rate conversion. The expandable calculation notes explain fractional-period growth, contribution boundaries, and rounding assumptions.
+
+Loan schedules allocate cumulative rounding to the selected currency's precision so displayed payments equal principal plus interest and the totals match the CSV. Displayed payments can vary slightly; the underlying projection uses unrounded payments.
 
 **Billable hours**
 

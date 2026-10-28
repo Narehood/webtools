@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { ADJUSTMENT_RANGES, analyzeColorCast, correctPixels, sampleSpot, withNeutralSpot, type ColorAdjustments } from "../lib/photoColor";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { ADJUSTMENT_RANGES, correctPixels, neutralizeSample, type ColorAdjustments, type ColorAnalysis, type RgbColor } from "../lib/photoColor";
 import { defaultManualEdit, type ManualPhotoEdit, type PhotoRepairJob, type RepairRotation } from "../lib/photoRepair";
 import { loadImage } from "../lib/image";
 
@@ -37,7 +37,8 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
   const [draft, setDraft] = useState<ManualPhotoEdit>(defaultManualEdit);
   const [saved, setSaved] = useState<ManualPhotoEdit>(defaultManualEdit);
   const [version, setVersion] = useState(0);
-  const [frame, setFrame] = useState<{ key: string; pixels: ImageData } | null>(null);
+  const [frame, setFrame] = useState<{ key: string; pixels: ImageData; analysis: ColorAnalysis } | null>(null);
+  const [neutralSample, setNeutralSample] = useState<{ key: string; spot: string; color: RgbColor } | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,9 +57,9 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   dirtyRef.current = dirty;
   const ready = Boolean(selected && frame && frame.key === key);
-  const editable = ready && !disabled && !readOnly && !saving;
+  const needsSample = Boolean(draft.neutral && (neutralSample?.key !== key || neutralSample.spot !== JSON.stringify(draft.neutral)));
+  const editable = ready && !needsSample && !disabled && !readOnly && !saving;
   const reviewed = completed.filter((entry) => entry.reviewedAt).length;
-  const analysis = useMemo(() => frame ? analyzeColorCast(frame.pixels) : null, [frame]);
 
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
@@ -82,8 +83,17 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
     const controller = new AbortController();
     let cancelled = false;
     setFrame(null);
-    fetch(`${BASE}/${job.id}/photos/${selected.id}/edit-base`, { signal: controller.signal })
-      .then(async (response) => {
+    const photoUrl = `${BASE}/${job.id}/photos/${selected.id}`;
+    Promise.all([
+      fetch(`${photoUrl}/edit-base`, { signal: controller.signal }),
+      fetch(`${photoUrl}/measure`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ neutral: selected.manual?.neutral || null }), signal: controller.signal })
+        .then(async (response) => {
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Could not measure this photo");
+          return result as { analysis: ColorAnalysis; neutral: RgbColor | null };
+        }),
+    ]).then(async ([response, measured]) => {
         if (!response.ok) throw new Error("Could not load this photo for review");
         const blob = await response.blob();
         const image = await loadImage(new File([blob], "review.jpg", { type: "image/jpeg" }));
@@ -94,7 +104,8 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
           const context = canvas.getContext("2d", { willReadFrequently: true });
           if (!context) throw new Error("Canvas is not available");
           context.drawImage(image, 0, 0);
-          setFrame({ key, pixels: context.getImageData(0, 0, canvas.width, canvas.height) });
+          setFrame({ key, pixels: context.getImageData(0, 0, canvas.width, canvas.height), analysis: measured.analysis });
+          setNeutralSample(measured.neutral ? { key, spot: JSON.stringify(selected.manual?.neutral), color: measured.neutral } : null);
           canvas.width = 0; canvas.height = 0;
         } finally { image.removeAttribute("src"); }
       }).catch((caught: unknown) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load photo"); });
@@ -102,7 +113,22 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
   }, [key]);
 
   useEffect(() => {
-    if (!ready || !frame || !analysis) return;
+    if (!ready || !needsSample || !draft.neutral) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    const spot = JSON.stringify(draft.neutral);
+    fetch(`${BASE}/${job.id}/photos/${selected!.id}/measure`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ neutral: draft.neutral }), signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not sample this photo");
+        if (!cancelled) setNeutralSample({ key, spot, color: result.neutral as RgbColor });
+      }).catch((caught: unknown) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not sample photo"); });
+    return () => { cancelled = true; controller.abort(); };
+  }, [ready, key, draft.neutral, needsSample]);
+
+  useEffect(() => {
+    if (!ready || !frame || needsSample) return;
     const handle = requestAnimationFrame(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -112,7 +138,8 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
         const context = scratch.getContext("2d");
         if (!context) throw new Error("Canvas is not available");
         const corrected = new ImageData(scratch.width, scratch.height);
-        correctPixels(frame.pixels.data, withNeutralSpot(analysis, frame.pixels, draft.neutral), draft.adjustments, corrected.data);
+        const analysis = draft.neutral && neutralSample ? neutralizeSample(frame.analysis, neutralSample.color) : frame.analysis;
+        correctPixels(frame.pixels.data, analysis, draft.adjustments, corrected.data);
         context.putImageData(corrected, 0, 0);
         const sideways = draft.rotation === 90 || draft.rotation === 270;
         canvas.width = sideways ? scratch.height : scratch.width;
@@ -126,7 +153,7 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
       finally { scratch.width = 0; scratch.height = 0; }
     });
     return () => cancelAnimationFrame(handle);
-  }, [ready, frame, analysis, draft, view]);
+  }, [ready, frame, neutralSample, needsSample, draft, view]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -156,7 +183,7 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
   }
 
   async function persist(markReviewed: boolean) {
-    if (!selected || working.current || disabled || readOnly || !ready) return false;
+    if (!selected || working.current || disabled || readOnly || !ready || needsSample) return false;
     if (!dirty && (!markReviewed || selected.reviewedAt)) return true;
     working.current = true; setSaving(true); onBusyChange("Saving photo"); setError("");
     try {
@@ -201,11 +228,8 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
     const v = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
     const spot = draft.rotation === 90 ? { x: v, y: 1 - u } : draft.rotation === 180 ? { x: 1 - u, y: 1 - v }
       : draft.rotation === 270 ? { x: 1 - v, y: u } : { x: u, y: v };
-    try {
-      sampleSpot(frame.pixels, spot);
-      setDraft((edit) => ({ ...edit, neutral: spot, adjustments: { ...edit.adjustments, strength: 100 } }));
-      setPicking(false); setMessage("");
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Choose a visible neutral area"); }
+    setDraft((edit) => ({ ...edit, neutral: spot, adjustments: { ...edit.adjustments, strength: 100 } }));
+    setPicking(false); setMessage(""); setError("");
   }
 
   useEffect(() => {
@@ -267,7 +291,9 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
         <div className={`repair-editor-stage${view === "compare" ? " comparing" : ""}`}>
           {view !== "edited" && <figure><img src={`${BASE}/${job.id}/photos/${selected.id}/before`} alt={`Original scan: ${selected.source}`} /><figcaption>Original scan</figcaption></figure>}
           <figure className={view === "original" ? "repair-editor-hidden" : ""}>
-            {ready ? <canvas ref={canvasRef} className={picking ? "picking" : ""} aria-label={`Editable preview: ${selected.source}`} onClick={pickNeutral} /> : <div className="repair-empty">Loading photo…</div>}
+            {!dirty && !picking && <img src={`${BASE}/${job.id}/photos/${selected.id}/after?v=${selected.editVersion || 0}`} alt={`Saved photo: ${selected.source}`} />}
+            {ready ? <canvas ref={canvasRef} style={!dirty && !picking ? { display: "none" } : undefined} className={picking ? "picking" : ""} aria-label={`Editable preview: ${selected.source}`} onClick={pickNeutral} /> : (dirty || picking) && <div className="repair-empty">Loading photo…</div>}
+            {needsSample && <p className="repair-muted" role="status">Measuring gray spot on the full-resolution photo…</p>}
             <figcaption>{picking ? "Click something that should be gray or white. Esc cancels." : `Edited preview${selected.repaired ? " · AI restored" : ""} · ${selected.width} × ${selected.height} saved pixels`}</figcaption>
           </figure>
         </div>
@@ -279,7 +305,7 @@ export function PhotoReviewWorkbench({ job, disabled, readOnly, onJobChange, onB
         <div className="row repair-between"><h3>Quick correction</h3><button className="btn ghost small" disabled={!editable} onClick={() => { setDraft(defaultManualEdit()); setPicking(false); setView("edited"); }}>Reset to batch result</button></div>
         <div className="row"><button className="btn ghost small" disabled={!editable} onClick={() => { setDraft((edit) => ({ ...edit, neutral: null, adjustments: { ...edit.adjustments, strength: 100 } })); setView("edited"); }}>Auto balance color</button>
           <button className="btn ghost small" disabled={!editable} aria-pressed={picking} onClick={() => { setPicking((current) => !current); setView("edited"); }}>Pick gray / white</button>
-          {draft.neutral && <button className="btn ghost small" disabled={!editable} onClick={() => setDraft((edit) => ({ ...edit, neutral: null }))}>Clear gray spot</button>}</div>
+          {draft.neutral && <button className="btn ghost small" disabled={!ready || disabled || readOnly || saving} onClick={() => setDraft((edit) => ({ ...edit, neutral: null }))}>Clear gray spot</button>}</div>
         {SLIDERS.map(({ key: name, label, ends }) => <label key={name} className="field repair-adjustment"><span>{label}<output>{draft.adjustments[name] > 0 && name !== "strength" ? "+" : ""}{draft.adjustments[name]}{name === "strength" ? "%" : ""}</output></span>
           <input aria-label={label} type="range" min={ADJUSTMENT_RANGES[name][0]} max={ADJUSTMENT_RANGES[name][1]} value={draft.adjustments[name]} disabled={!editable} onChange={(event) => adjust(name, Number(event.target.value))} onDoubleClick={() => adjust(name, 0)} />
           <small>{ends}</small></label>)}

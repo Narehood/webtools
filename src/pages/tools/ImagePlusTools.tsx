@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { DropZone } from "../../components/DropZone";
 import { CropStage } from "../../components/CropStage";
@@ -31,7 +31,18 @@ export function ResizeTool() {
   const [error, setError] = useState("");
   const outputPreview = useObjectUrl(output);
   const cropRatio = cropLock ? cropAspect : null;
-  useEffect(() => { setOutput(null); }, [width, height, crop]);
+  const outputEdited = useRef(false);
+  const encodeToken = useRef(0);
+  useEffect(() => {
+    encodeToken.current += 1;
+    setOutput(null);
+  }, [width, height, crop, file]);
+  useEffect(() => {
+    if (outputEdited.current) return;
+    setWidth(crop.w);
+    setHeight(crop.h);
+    setRatio(crop.w / Math.max(1, crop.h));
+  }, [crop.w, crop.h]);
 
   async function takeFile(next: File) {
     setBusy(true);
@@ -48,6 +59,7 @@ export function ResizeTool() {
       setCrop(fullCrop(w, h));
       setCropLock(false);
       setCropAspect(w / h);
+      outputEdited.current = false;
       setOutput(null);
     } finally {
       setBusy(false);
@@ -67,24 +79,31 @@ export function ResizeTool() {
 
   async function run() {
     if (!file || !source) return;
+    const token = encodeToken.current;
+    const shot = crop;
+    const outW = width;
+    const outH = height;
     setBusy(true);
     setError("");
     setOutput(null);
     try {
-      if (![width, height, crop.w, crop.h].every((value) => Number.isSafeInteger(value) && value > 0)
-        || ![crop.x, crop.y].every((value) => Number.isSafeInteger(value) && value >= 0)) {
+      if (![outW, outH, shot.w, shot.h].every((value) => Number.isSafeInteger(value) && value > 0)
+        || ![shot.x, shot.y].every((value) => Number.isSafeInteger(value) && value >= 0)) {
         throw new Error("Use positive whole-number sizes and non-negative crop coordinates");
       }
       const image = await loadImage(file);
-      if (crop.x + crop.w > image.naturalWidth || crop.y + crop.h > image.naturalHeight) throw new Error("Crop must fit inside the source image");
+      if (token !== encodeToken.current) return;
+      if (shot.x + shot.w > image.naturalWidth || shot.y + shot.h > image.naturalHeight) throw new Error("Crop must fit inside the source image");
       const drawn = canvasFromImage(image).canvas;
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, width);
-      canvas.height = Math.max(1, height);
+      canvas.width = Math.max(1, outW);
+      canvas.height = Math.max(1, outH);
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Canvas is not available");
-      ctx.drawImage(drawn, crop.x, crop.y, crop.w, crop.h, 0, 0, canvas.width, canvas.height);
-      setOutput(await encodeCanvas(canvas, "image/png", 0.92));
+      ctx.drawImage(drawn, shot.x, shot.y, shot.w, shot.h, 0, 0, canvas.width, canvas.height);
+      const blob = await encodeCanvas(canvas, "image/png", 0.92);
+      if (token !== encodeToken.current) return;
+      setOutput(blob);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not resize image");
     } finally {
@@ -112,6 +131,7 @@ export function ResizeTool() {
               imageHeight={source.h}
               crop={crop}
               aspect={cropRatio}
+              disabled={busy}
               onChange={setCrop}
             />
           )}
@@ -174,6 +194,7 @@ export function ResizeTool() {
                   min={1}
                   value={width}
                   onChange={(event) => {
+                    outputEdited.current = true;
                     const next = Number(event.target.value);
                     setWidth(next);
                     if (lock) setHeight(Math.max(1, Math.round(next / ratio)));
@@ -187,6 +208,7 @@ export function ResizeTool() {
                   min={1}
                   value={height}
                   onChange={(event) => {
+                    outputEdited.current = true;
                     const next = Number(event.target.value);
                     setHeight(next);
                     if (lock) setWidth(Math.max(1, Math.round(next * ratio)));
