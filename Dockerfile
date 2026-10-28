@@ -1,8 +1,17 @@
 # syntax=docker/dockerfile:1
-# Homelab image: Node 24 on Alpine. Frontend is compiled away;
-# the running container only needs Node, the static files, and whoiser.
+# Homelab image: Node 24.22.1 LTS on Alpine. Frontend is compiled away;
+# the running container includes native image codecs for disk-backed photo jobs.
 
-FROM node:24-alpine AS build
+FROM node:24.22.1-alpine AS base
+# Refresh OS security fixes as well as Node's separately bundled trust store.
+# 20261020-r0 removes the roots affected by the eMudhra CA compromise.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache "ca-certificates>=20261020-r0" \
+    && update-ca-certificates
+COPY scripts/check-runtime-security.mjs /app/scripts/check-runtime-security.mjs
+RUN node /app/scripts/check-runtime-security.mjs --require-system-bundle
+
+FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -10,16 +19,12 @@ COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.t
 COPY public ./public
 COPY src ./src
 COPY server ./server
+COPY scripts ./scripts
 COPY tests ./tests
-RUN npm test && npm run build \
-  && mkdir -p /runtime/node_modules \
-  && cp -a node_modules/whoiser /runtime/node_modules/whoiser \
-  && if [ -d node_modules/punycode ]; then cp -a node_modules/punycode /runtime/node_modules/punycode; fi \
-  && rm -rf /runtime/node_modules/whoiser/test \
-            /runtime/node_modules/whoiser/examples \
-            /runtime/node_modules/whoiser/.github
+COPY docs ./docs
+RUN npm test && npm run build && npm prune --omit=dev
 
-FROM node:24-alpine
+FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080
@@ -30,8 +35,11 @@ LABEL org.opencontainers.image.source="https://github.com/Narehood/webtools" \
 
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
-COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./
+COPY --from=build --chown=node:node /app/src/lib/photoColor.ts /app/src/lib/photoRepair.ts /app/src/lib/fileImageTools.ts ./src/lib/
+RUN mkdir -p /app/data/photo-repair && chown -R node:node /app/data
+ENV PHOTO_REPAIR_DIR=/app/data/photo-repair
 
 # VERSION must be the package.json version. There is no default, so a local
 # build cannot record 0.0.0 when the arg is forgotten.
@@ -45,4 +53,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1
 
-CMD ["node", "server/prod.ts"]
+CMD ["node", "--import", "./scripts/check-runtime-security.mjs", "server/prod.ts"]

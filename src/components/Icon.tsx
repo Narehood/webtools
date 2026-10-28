@@ -11,6 +11,12 @@ export function Icon({ name }: { name: string }) {
   };
 
   switch (name) {
+    case "interest-calculator":
+      return (
+        <svg {...common}>
+          <path d="M4 19h16M6 15V11M11 15V8M16 15V5M5 8l5-3 4 1 5-3" />
+        </svg>
+      );
     case "background":
       return (
         <svg {...common}>
@@ -41,6 +47,12 @@ export function Icon({ name }: { name: string }) {
         </svg>
       );
     case "whois":
+    case "ipv4":
+    case "ipv4-range":
+    case "mac-lookup":
+    case "mac-generator":
+    case "ipv6-ula":
+    case "random-port":
       return (
         <svg {...common}>
           <circle cx="12" cy="12" r="8" />
@@ -60,6 +72,18 @@ export function Icon({ name }: { name: string }) {
         </svg>
       );
     case "json":
+    case "toml":
+    case "xml":
+    case "yaml":
+    case "sql":
+    case "base64-file":
+    case "pdf-signature":
+    case "meta-tags":
+    case "mime":
+    case "html-editor":
+    case "git-reference":
+    case "regex-reference":
+    case "http-codes":
       return (
         <svg {...common}>
           <path d="M8 5c-2 0-3 1.5-3 4s1 4 3 4c-2 0-3 1.5-3 4s1 4 3 4M16 5c2 0 3 1.5 3 4s-1 4-3 4c2 0 3 1.5 3 4s-1 4-3 4" />
@@ -79,6 +103,13 @@ export function Icon({ name }: { name: string }) {
         </svg>
       );
     case "password":
+    case "bcrypt":
+    case "ulid":
+    case "encryption":
+    case "bip39":
+    case "rsa":
+    case "password-strength":
+    case "basic-auth":
       return (
         <svg {...common}>
           <rect x="5" y="11" width="14" height="9" rx="2" />
@@ -86,6 +117,8 @@ export function Icon({ name }: { name: string }) {
         </svg>
       );
     case "color":
+    case "svg-placeholder":
+    case "camera":
       return (
         <svg {...common}>
           <circle cx="12" cy="12" r="8" />
@@ -351,6 +384,26 @@ export function Icon({ name }: { name: string }) {
           <path d="M14 4v4h4M9 13h6M9 16h4" />
         </svg>
       );
+    case "qr-reader":
+      return <svg {...common}><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M3 12h18" /><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 15h3v3H7zM14 15h3v3h-3z" /></svg>;
+    case "pdf-editor":
+      return <svg {...common}><path d="M7 3h8l4 4v4M15 3v5h4M7 3v17h7M10 11h4M10 15h2M15 18l5-5 2 2-5 5-3 1z" /></svg>;
+    case "pdf":
+      return <svg {...common}><path d="M7 3h8l4 4v13H7zM15 3v5h4M4 7v15h11M10 12h6M10 16h4" /></svg>;
+    case "domain-health":
+      return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M3 12h4l2-4 4 8 2-4h6M12 3v2M12 19v2" /></svg>;
+    case "docker-compose":
+      return <svg {...common}><rect x="3" y="4" width="6" height="6" rx="1" /><rect x="3" y="14" width="6" height="6" rx="1" /><path d="M12 12h9m-3-3 3 3-3 3M6 10v4M15 5h6M15 19h6" /></svg>;
+    case "date-calculator":
+      return <svg {...common}><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 15h4M10 13v4M15 15h2" /></svg>;
+    case "image-palette":
+      return <svg {...common}><path d="M20 13a9 9 0 1 0-8 8c2 0 3-1 2-3s0-3 2-3h2c1 0 2-1 2-2Z" /><circle cx="7" cy="10" r="1" /><circle cx="10" cy="6" r="1" /><circle cx="15" cy="7" r="1" /><circle cx="6" cy="15" r="1" /></svg>;
+    case "photo-repair":
+      return <svg {...common}><rect x="3" y="6" width="15" height="14" rx="2" /><path d="m3 17 5-5 4 4 3-3 3 3M19 2v6M16 5h6M7 3h6" /></svg>;
+    case "photo-color":
+      return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M12 5v14" /><path d="m3 16 4-4 3 3" /><path d="M15 9h3M15 12h3M15 15h3" /></svg>;
+    case "favicon":
+      return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="3" /><path d="m12 6 2 4 4 .5-3 3 .5 4.5-3.5-2-3.5 2 .5-4.5-3-3 4-.5Z" /></svg>;
     case "settings":
       return (
         <svg {...common}>

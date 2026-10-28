@@ -1,0 +1,534 @@
+{
+  "source": "https://tools.lab.frydae.dev/",
+  "sourceVersion": "v2024.10.22-7ca5933",
+  "comparedOn": "2026-10-15",
+  "sourceToolCount": 86,
+  "newWebToolsPages": 47,
+  "notes": [
+    "Comparison is by capability. Related source utilities share a WebTools page.",
+    "Versions are implemented within WebTools; the reference site's source and design were not copied.",
+    "Encryption uses WebTools AES-256-GCM messages rather than the reference's legacy cipher formats.",
+    "PDF verification checks detached CMS cryptographic integrity, not certificate trust, revocation, or timestamp authority.",
+    "MAC vendors use a bundled IEEE registry snapshot; no MAC address is sent to a lookup service.",
+    "The benchmark builder compares supplied timing samples rather than executing arbitrary code.",
+    "Reference sheets cover commonly used entries rather than reproducing every upstream entry."
+  ],
+  "tools": [
+    {
+      "sourcePath": "/token-generator",
+      "sourceName": "Token generator",
+      "targetPath": "/password",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/hash-text",
+      "sourceName": "Hash text",
+      "targetPath": "/hash",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/bcrypt",
+      "sourceName": "Bcrypt",
+      "targetPath": "/bcrypt",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/uuid-generator",
+      "sourceName": "UUIDs generator",
+      "targetPath": "/ids",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/ulid-generator",
+      "sourceName": "ULID generator",
+      "targetPath": "/ulid",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/encryption",
+      "sourceName": "Encrypt / decrypt text",
+      "targetPath": "/encryption",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/bip39-generator",
+      "sourceName": "BIP39 passphrase generator",
+      "targetPath": "/bip39",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/hmac-generator",
+      "sourceName": "Hmac generator",
+      "targetPath": "/hmac",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/rsa-key-pair-generator",
+      "sourceName": "RSA key pair generator",
+      "targetPath": "/rsa",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/password-strength-analyser",
+      "sourceName": "Password strength analyser",
+      "targetPath": "/password-strength",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/pdf-signature-checker",
+      "sourceName": "PDF signature checker",
+      "targetPath": "/pdf-signature",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/date-converter",
+      "sourceName": "Date-time converter",
+      "targetPath": "/timestamp",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/base-converter",
+      "sourceName": "Integer base converter",
+      "targetPath": "/bases",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/roman-numeral-converter",
+      "sourceName": "Roman numeral converter",
+      "targetPath": "/roman",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/base64-string-converter",
+      "sourceName": "Base64 string encoder/decoder",
+      "targetPath": "/base64",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/base64-file-converter",
+      "sourceName": "Base64 file converter",
+      "targetPath": "/base64-file",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/color-converter",
+      "sourceName": "Color converter",
+      "targetPath": "/color-convert",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/case-converter",
+      "sourceName": "Case converter",
+      "targetPath": "/case",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/text-to-nato-alphabet",
+      "sourceName": "Text to NATO alphabet",
+      "targetPath": "/nato",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/text-to-binary",
+      "sourceName": "Text to ASCII binary",
+      "targetPath": "/binary",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/text-to-unicode",
+      "sourceName": "Text to Unicode",
+      "targetPath": "/unicode",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/yaml-to-json-converter",
+      "sourceName": "YAML to JSON converter",
+      "targetPath": "/data",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/yaml-to-toml",
+      "sourceName": "YAML to TOML",
+      "targetPath": "/toml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/json-to-yaml-converter",
+      "sourceName": "JSON to YAML converter",
+      "targetPath": "/data",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/json-to-toml",
+      "sourceName": "JSON to TOML",
+      "targetPath": "/toml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/list-converter",
+      "sourceName": "List converter",
+      "targetPath": "/list",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/toml-to-json",
+      "sourceName": "TOML to JSON",
+      "targetPath": "/toml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/toml-to-yaml",
+      "sourceName": "TOML to YAML",
+      "targetPath": "/toml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/xml-to-json",
+      "sourceName": "XML to JSON",
+      "targetPath": "/xml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/json-to-xml",
+      "sourceName": "JSON to XML",
+      "targetPath": "/xml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/markdown-to-html",
+      "sourceName": "Markdown to HTML",
+      "targetPath": "/markdown",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/url-encoder",
+      "sourceName": "Encode/decode URL-formatted strings",
+      "targetPath": "/encode",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/html-entities",
+      "sourceName": "Escape HTML entities",
+      "targetPath": "/encode",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/url-parser",
+      "sourceName": "URL parser",
+      "targetPath": "/url",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/device-information",
+      "sourceName": "Device information",
+      "targetPath": "/device",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/basic-auth-generator",
+      "sourceName": "Basic auth generator",
+      "targetPath": "/basic-auth",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/og-meta-generator",
+      "sourceName": "Open graph meta generator",
+      "targetPath": "/meta-tags",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/otp-generator",
+      "sourceName": "OTP code generator",
+      "targetPath": "/totp",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/mime-types",
+      "sourceName": "MIME types",
+      "targetPath": "/mime",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/jwt-parser",
+      "sourceName": "JWT parser",
+      "targetPath": "/jwt",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/keycode-info",
+      "sourceName": "Keycode info",
+      "targetPath": "/keycode",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/slugify-string",
+      "sourceName": "Slugify string",
+      "targetPath": "/ids",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/html-wysiwyg-editor",
+      "sourceName": "HTML WYSIWYG editor",
+      "targetPath": "/html-editor",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/user-agent-parser",
+      "sourceName": "User-agent parser",
+      "targetPath": "/user-agent",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/http-status-codes",
+      "sourceName": "HTTP status codes",
+      "targetPath": "/http-codes",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/json-diff",
+      "sourceName": "JSON diff",
+      "targetPath": "/diff",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/safelink-decoder",
+      "sourceName": "Outlook Safelink decoder",
+      "targetPath": "/safelink",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/qrcode-generator",
+      "sourceName": "QR Code generator",
+      "targetPath": "/qr",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/wifi-qrcode-generator",
+      "sourceName": "WiFi QR Code generator",
+      "targetPath": "/wifi",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/svg-placeholder-generator",
+      "sourceName": "SVG placeholder generator",
+      "targetPath": "/svg-placeholder",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/camera-recorder",
+      "sourceName": "Camera recorder",
+      "targetPath": "/camera",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/git-memo",
+      "sourceName": "Git cheatsheet",
+      "targetPath": "/git-reference",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/random-port-generator",
+      "sourceName": "Random port generator",
+      "targetPath": "/random-port",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/crontab-generator",
+      "sourceName": "Crontab generator",
+      "targetPath": "/cron",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/json-prettify",
+      "sourceName": "JSON prettify and format",
+      "targetPath": "/json",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/json-minify",
+      "sourceName": "JSON minify",
+      "targetPath": "/json",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/json-to-csv",
+      "sourceName": "JSON to CSV",
+      "targetPath": "/data",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/sql-prettify",
+      "sourceName": "SQL prettify and format",
+      "targetPath": "/sql",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/chmod-calculator",
+      "sourceName": "Chmod calculator",
+      "targetPath": "/chmod",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/docker-run-to-docker-compose-converter",
+      "sourceName": "Docker run to Docker compose converter",
+      "targetPath": "/docker-compose",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/xml-formatter",
+      "sourceName": "XML formatter",
+      "targetPath": "/xml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/yaml-prettify",
+      "sourceName": "YAML prettify and format",
+      "targetPath": "/yaml",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/email-normalizer",
+      "sourceName": "Email normalizer",
+      "targetPath": "/email-normalizer",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/regex-tester",
+      "sourceName": "Regex Tester",
+      "targetPath": "/regex",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/regex-memo",
+      "sourceName": "Regex cheatsheet",
+      "targetPath": "/regex-reference",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/ipv4-subnet-calculator",
+      "sourceName": "IPv4 subnet calculator",
+      "targetPath": "/cidr",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/ipv4-address-converter",
+      "sourceName": "IPv4 address converter",
+      "targetPath": "/ipv4",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/ipv4-range-expander",
+      "sourceName": "IPv4 range expander",
+      "targetPath": "/ipv4-range",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/mac-address-lookup",
+      "sourceName": "MAC address lookup",
+      "targetPath": "/mac-lookup",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/mac-address-generator",
+      "sourceName": "MAC address generator",
+      "targetPath": "/mac-generator",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/ipv6-ula-generator",
+      "sourceName": "IPv6 ULA generator",
+      "targetPath": "/ipv6-ula",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/math-evaluator",
+      "sourceName": "Math evaluator",
+      "targetPath": "/math",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/eta-calculator",
+      "sourceName": "ETA calculator",
+      "targetPath": "/eta",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/percentage-calculator",
+      "sourceName": "Percentage calculator",
+      "targetPath": "/percent",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/chronometer",
+      "sourceName": "Chronometer",
+      "targetPath": "/stopwatch",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/temperature-converter",
+      "sourceName": "Temperature converter",
+      "targetPath": "/units",
+      "change": "extended"
+    },
+    {
+      "sourcePath": "/benchmark-builder",
+      "sourceName": "Benchmark builder",
+      "targetPath": "/benchmark",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/lorem-ipsum-generator",
+      "sourceName": "Lorem ipsum generator",
+      "targetPath": "/lorem",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/text-statistics",
+      "sourceName": "Text statistics",
+      "targetPath": "/count",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/emoji-picker",
+      "sourceName": "Emoji picker",
+      "targetPath": "/emoji",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/string-obfuscator",
+      "sourceName": "String obfuscator",
+      "targetPath": "/obfuscate",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/text-diff",
+      "sourceName": "Text diff",
+      "targetPath": "/diff",
+      "change": "existing"
+    },
+    {
+      "sourcePath": "/numeronym-generator",
+      "sourceName": "Numeronym generator",
+      "targetPath": "/numeronym",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/ascii-text-drawer",
+      "sourceName": "ASCII Art Text Generator",
+      "targetPath": "/ascii",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/phone-parser-and-formatter",
+      "sourceName": "Phone parser and formatter",
+      "targetPath": "/phone",
+      "change": "added"
+    },
+    {
+      "sourcePath": "/iban-validator-and-parser",
+      "sourceName": "IBAN validator and parser",
+      "targetPath": "/iban",
+      "change": "added"
+    }
+  ]
+}

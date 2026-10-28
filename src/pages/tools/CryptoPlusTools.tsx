@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hashFile } from "../../lib/hash";
+import { hashAlgorithms, hashFile } from "../../lib/hash";
 import { DropZone } from "../../components/DropZone";
 import { CopyButton } from "../../components/CopyButton";
 import { formatBytes } from "../../lib/image";
@@ -60,9 +60,7 @@ export function ChecksumTool() {
                 void run(file, event.target.value);
               }}
             >
-              <option>SHA-256</option>
-              <option>SHA-1</option>
-              <option>SHA-512</option>
+              {hashAlgorithms.map(name => <option key={name}>{name}</option>)}
             </select>
           </label>
         </section>

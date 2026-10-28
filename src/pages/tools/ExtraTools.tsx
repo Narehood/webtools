@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { CopyButton } from "../../components/CopyButton";
+import { convertIntegerBase } from "../../lib/integerBase";
 import {
   aspectOf,
-  convertBases,
   formatMeasure,
   formatNumber,
   loremIpsum,
@@ -59,12 +59,17 @@ export function CountTool() {
 export function BasesTool() {
   const [raw, setRaw] = useState("255");
   const [base, setBase] = useState(10);
-  const result = useMemo(() => convertBases(raw, base), [raw, base]);
+  const [target, setTarget] = useState(36);
+  const result = useMemo(() => {
+    try { return { bin: convertIntegerBase(raw,base,2), oct: convertIntegerBase(raw,base,8), dec: convertIntegerBase(raw,base,10), hex: convertIntegerBase(raw,base,16), custom: convertIntegerBase(raw,base,target) }; }
+    catch (error) { return { error: error instanceof Error ? error.message : "Could not convert this integer." }; }
+  }, [raw, base, target]);
   const rows = "error" in result ? [] : [
     ["Binary", result.bin],
     ["Octal", result.oct],
     ["Decimal", result.dec],
     ["Hex", result.hex],
+    [`Base ${target}`, result.custom],
   ];
 
   return (
@@ -72,7 +77,7 @@ export function BasesTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>Number bases</h1>
-        <p className="lede">Prefixes 0b, 0o, and 0x override the selected base. Underscores are ignored.</p>
+          <p className="lede">Integer bases 2–64. Digits: 0–9, A–Z, a–z, +, /. Bases up to 36 ignore case and underscores and accept 0b, 0o, and 0x prefixes. Higher bases are case-sensitive. This is positional notation; Base64 text encoding has its own page.</p>
       </header>
       <div className="workspace report">
         <section className="panel stack">
@@ -83,12 +88,10 @@ export function BasesTool() {
           <label className="field">
             <span>From base</span>
             <select value={base} onChange={(event) => setBase(Number(event.target.value))}>
-              <option value={2}>Binary (2)</option>
-              <option value={8}>Octal (8)</option>
-              <option value={10}>Decimal (10)</option>
-              <option value={16}>Hexadecimal (16)</option>
+                {Array.from({ length: 63 }, (_, index) => index + 2).map(value => <option key={value} value={value}>Base {value}</option>)}
             </select>
           </label>
+            <label className="field"><span>Additional output base</span><select value={target} onChange={event => setTarget(Number(event.target.value))}>{Array.from({ length: 63 }, (_, index) => index + 2).map(value => <option key={value} value={value}>Base {value}</option>)}</select></label>
         </section>
         <section className="panel">
           {"error" in result ? (

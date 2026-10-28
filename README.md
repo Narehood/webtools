@@ -6,6 +6,27 @@
 
 Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and text work stay in the browser where possible. Status, WHOIS, DNS, certificates, headers, and mail records are checked from this machine — they only leave the host to reach the target you type.
 
+## IT-Tools comparison and additions
+
+The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page. This adds **47 pages**; with bulk photo repair and the interest calculator, this checkout's catalog contains **108 tools**.
+
+| Area | New tools |
+| --- | --- |
+| Crypto | Bcrypt hash/compare, ULIDs, AES encryption/decryption, BIP39 mnemonics and seeds, RSA PEM keys, password strength analysis |
+| Formats | TOML/JSON/YAML conversion, XML/JSON conversion and XML formatting, YAML formatting, SQL formatting, Base64 files |
+| Text | NATO spelling, UTF-8 binary, Unicode escapes and code points, list conversion, email normalization, string masking, numeronyms, FIGlet banners, searchable emojis |
+| Network | IPv4 representations, exact IPv4 range-to-CIDR covers, MAC vendor lookup, MAC generation, IPv6 ULA prefixes, random ports |
+| Developer | HTTP Basic-auth headers, social meta tags, MIME types, user-agent parsing, HTTP status reference, Outlook SafeLink decoding, Git and regex references, rich-text/HTML editing, timing benchmark comparison |
+| Browser and images | Device information, keyboard events, camera photos/video, SVG placeholders |
+| Calculators | Roman numerals, math expressions, ETA, stopwatch/laps, phone formatting, IBAN validation |
+| Files | PDF signature integrity checker |
+
+Existing tools now include additional hash/HMAC algorithms, UUID versions 1/3/4/5/6/7, token character-group controls, integer bases 2–64, CSS color names, OTP validation, cron generation, QR colors, additional temperature scales, and Markdown-to-HTML export. Existing URLs remain available.
+
+The additions run in the browser. Encryption uses a WebTools AES-256-GCM JSON envelope with PBKDF2-SHA256 (600,000 iterations), so it does not decode other sites' legacy ciphertext formats. RSA, PDF cryptographic verification, and camera access require HTTPS or localhost. PDF verification checks detached CMS signatures against signed byte ranges and reports later unsigned bytes; it does not validate certificate trust, revocation, or timestamp authorities. The HTML preview is sandboxed with scripts and external requests disabled. The benchmark tool compares supplied timing samples.
+
+MAC lookup uses a bundled [IEEE registry](https://standards.ieee.org/products-programs/regauth/) snapshot, including MA-L, MA-M, and MA-S prefixes. Emoji names and characters come from [Unicode's emoji data](https://unicode.org/Public/emoji/latest/emoji-test.txt), under the [Unicode data license](https://www.unicode.org/license.txt). Both datasets load only when needed. Refresh them with `node scripts/update-utility-data.mjs`, then rebuild. Registry updates require internet access; ordinary lookups do not send addresses to a third party.
+
 ## Run
 
 ### Docker Compose
@@ -45,11 +66,11 @@ Optional environment variables in the stack UI (leave blank for defaults):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.1.0`, or a `sha-` tag for one build |
+| `WEBTOOLS_TAG` | `latest` | Image tag. Use `latest`, a pinned package version such as `0.1.1`, or a `sha-` tag for one build |
 | `WEBTOOLS_PORT` | `8080` | Host port |
 | `WEBTOOLS_BIND` | `0.0.0.0` | Set `127.0.0.1` if only a tunnel should reach it |
 
-When you update, turn on **Re-pull image and redeploy** so Portainer fetches a new `latest`. If GHCR is still private, add a `ghcr.io` registry in Portainer with a GitHub token that can read packages.
+When you update, turn on **Re-pull image and redeploy** so Portainer fetches a new `latest`. The pull-only Compose examples also use `pull_policy: always`. If GHCR is still private, add a `ghcr.io` registry in Portainer with a GitHub token that can read packages. Pinned version and `sha-` tags are immutable: select a newly published tag to receive security fixes.
 
 ### Docker
 
@@ -61,20 +82,35 @@ docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/nare
 Build it yourself instead of pulling:
 
 ```bash
-docker build --build-arg VERSION="$(node -p "require('./package.json').version")" -t ghcr.io/narehood/webtools:latest .
+docker build --pull --no-cache --build-arg VERSION="$(node -p "require('./package.json').version")" -t ghcr.io/narehood/webtools:latest .
 docker run -d --name webtools --restart unless-stopped -p 8080:8080 ghcr.io/narehood/webtools:latest
 ```
 
-The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The `package.json` version (currently `0.1.0`) is published once from `main`, or from a matching `v0.1.0` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
+The image is Node 24 on Alpine. `main` publishes `latest` and an immutable `sha-<commit>` tag. The `package.json` version (currently `0.1.1`) is published once from `main`, or from a matching `v0.1.1` git tag, and later builds do not move it. A git tag that does not match `package.json` fails the build. Bump that version to publish the next pin. Network tools need outbound access from the container (DNS, 443, WHOIS on 43, and the single port you type in Port check). The first GHCR package is often created as private — set it public under the repo’s **Packages** tab so `docker pull` works without a token.
 
 ### Local development
 
 ```bash
-npm install
+nvm install
+nvm use
+npm ci
 npm run dev
 ```
 
-Needs Node 24+. Open [http://localhost:5173](http://localhost:5173).
+Needs Node 24.22.1 or newer in the Node 24 LTS line. `.nvmrc` selects 24.22.1; if you use a different Node manager, install that version before running `npm ci`. This is the [October 2026 security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), which fixes CVE-2026-111497 (Brotli) and updates Node's bundled CA trust store following the eMudhra compromise. Both Docker stages inherit a base that upgrades Alpine packages and requires `ca-certificates>=20261020-r0`. CI pulls the base image and builds without cached layers so OS security updates run on every build. Open [http://localhost:5173](http://localhost:5173).
+
+Run `npm run check:security` to verify the Node version and check that its bundled and effective CA stores exclude the removed roots. On Linux, the check also inspects `/etc/ssl/certs/ca-certificates.crt` when present. Container builds require that OS bundle, and containers repeat the check before serving requests; `npm start` also runs it. Custom trust anchors and other software's private CA bundles need their own review.
+
+After publishing the updated image, recreate existing containers; restarting an old container does not install updates. For the pull-only Compose example:
+
+```bash
+docker compose pull webtools
+docker compose up -d --no-deps --force-recreate webtools
+docker compose exec webtools node /app/scripts/check-runtime-security.mjs --require-system-bundle
+docker compose exec webtools apk info -v ca-certificates ca-certificates-bundle
+```
+
+In Portainer, use **Re-pull image and redeploy**, then run the same Node security check in the container console. A build date alone does not establish which runtime or CA bundle is running.
 
 Run `npm test` for parser, hashing, image-format, and production-server regression checks. Run `npm run build` to type-check and build the app. Container builds run both checks.
 
@@ -84,14 +120,33 @@ Hashing runs locally on both HTTP and HTTPS. Copy buttons use a fallback on LAN 
 
 | Where it runs | What |
 | --- | --- |
-| **This browser** | Images, EXIF, hashes, JWT decode, text transforms, QR, URLs, theme, favorites |
-| **This server** | Site status, SSL, WHOIS, DNS, HTTP headers, mail auth, site files, port check, egress IP, reverse DNS |
+| **This browser** | Images, EXIF, PDF pages, QR generation and reading, hashes, JWT decode, text and JSON comparison, URLs, Docker conversion, date calculations, theme, favorites |
+| **This server** | Bulk photo ZIP storage, CPU color correction and EXIF orientation; domain health, site status, SSL, WHOIS, DNS and resolver comparisons, HTTP headers, mail auth, site files, port check, egress IP, reverse DNS |
+| **Optional cloud AI** | Bulk photo scene/damage assessment and scratch/crease repair, when enabled by the user and configured with a server API key |
 
-No accounts. Files you drop are not uploaded to a third party.
+No accounts. Browser tools keep files in the browser. Bulk photo repair uploads its ZIP to this server; its optional AI features send photo copies to OpenAI only when selected and explicitly enabled for the run. Anyone with access to this server's UI can see, download, process, and delete saved photo jobs and use its configured API key. Use the existing private-LAN or authenticated-proxy deployment.
+
+The catalog is grouped into **Images**, **Files**, **Network**, **Developer**, **Text**, **Calculators**, and **Crypto**. Existing tool URLs and favorites continue to work after the category changes.
 
 ---
 
 ## Images
+
+**Bulk photo repair**
+For hands-on correction, choose **Prepare for manual review** to keep scanned colors and prepare photos with CPU/EXIF processing only. Once photos are ready, open **Review & correct photos** and use **Focus view** for a large preview. Warmth, tint, brightness, contrast, saturation, automatic color balance, and a gray/white-point picker preview immediately. Compare with the original, rotate left/right or 180°, and use **Save & next** to save full-resolution output and mark the photo reviewed. Keyboard shortcuts: `L` / `R` rotate, left/right arrows move, `Enter` saves and advances, `Space` toggles the original, and `Esc` leaves focus view. Sliders keep their normal keyboard controls. Moving to another photo or thumbnail saves pending edits; **Discard changes** restores the last saved settings. Filter unreviewed/flagged photos, jump to a photo number, and resume at the last viewed photo in this browser. Pause a running batch before saving manual edits; browsing completed photos remains available.
+
+Manual edits do not call cloud AI. The original batch result is retained and every manual save renders from that same result, avoiding cumulative corrections or repeated JPEG degradation. **Reset to batch result** restores that result, including its exact encoded bytes after saving. ZIP downloads always include the latest saved manual output and review settings in the report. Allow extra disk space for retained batch images plus the latest manual results and temporary save files. Unsaved changes must be saved or discarded before switching jobs or downloading the ZIP.
+
+Open `/photo-repair` for archives up to 8 GB and 5,000 photos (150 MB / 60 megapixels per photo; 40 GB total expanded image data). Uploads use resumable 8 MB chunks and the archive is read from disk, including ZIP64 files. JPEG, PNG, TIFF, WebP, GIF (first frame), and AVIF use server codecs; HEIF support depends on the installed sharp/libvips codecs. Encrypted archives and symbolic links are refused. Unsupported files are counted as skipped. Original ZIPs stay intact. Each photo gets its own color analysis; CPU output keeps pixel dimensions, honors EXIF orientation, converts to sRGB and removes metadata. Edited names use `_edited`, preserve subfolders, and resolve duplicate names without overwriting.
+
+Start with **Try 5 photos**, compare originals/results, and then **Process remaining photos**. Jobs run one at a time, independently of the browser tab. Pause finishes the current photo. Restarted jobs stay paused until explicitly resumed; completed results persist. Failed photos can be retried explicitly. Scene orientation uses cloud vision; confidence below 85% leaves the image unrotated and flags it for review. Manual left/right rotation is available after pausing. Cloud repair can target detected damage or every photo; all AI repairs require visual review because generated details, faces, text, framing and dimensions can differ from the original. CPU processing does not repair physical damage. Cloud repair inputs are limited to a 2048-pixel longest edge; outputs use the model's returned dimensions without stretching back to the scan resolution.
+
+Cloud features need a billed OpenAI API account and `OPENAI_API_KEY` in the **server environment**, then a server restart. CPU correction/metadata rotation need no key. No API keys are accepted or stored by the browser. Optional server overrides: `PHOTO_REPAIR_IMAGE_MODEL` (default `gpt-image-2.5-sunburst`) and `PHOTO_REPAIR_VISION_MODEL` (default `gpt-5-mini`). Requests follow the [image edits API](https://developers.openai.com/api/reference/resources/images/methods/edit) and [structured vision output](https://developers.openai.com/api/docs/guides/structured-outputs). The job's repair-attempt cap counts failures as well as successes; vision assessments cost extra, normally one per photo. No dollar estimate is implied. API failures pause the job without automatic paid retries. Check usage before retrying timed-out or interrupted requests.
+
+Set `PHOTO_REPAIR_DIR` to storage with room for the uploaded ZIP, all edited results, previews, and one decoded image at a time. A 2.59 GB source needs more than 5.18 GB free just to pass the initial upload check; PNG results can need substantially more. Docker Compose and Portainer use the `photo-repair-data` volume at `/app/data/photo-repair`; keep it across container replacements. For a plain `docker run`, add `-v photo-repair-data:/app/data/photo-repair` and optionally `-e OPENAI_API_KEY`. Local development uses exported environment variables; `.env.example` documents the settings. A reverse proxy must permit 8 MB upload request bodies and streamed ZIP downloads. Downloads stream completed images plus `_webtools_report.json` as ZIP/ZIP64, including a report of failed/unprocessed images. **Delete job from server** removes the uploaded copy and results; it does not touch your local source archive. There is no automatic retention cleanup (up to 20 jobs).
+
+**Photo color fix**  
+Remove yellow, faded, or off-color casts from scanned prints and negatives. Each photo's red, green, and blue channels are stretched to full range and its near-neutral areas are balanced to gray, like a darkroom auto-color pass. Flat black film rebates and white scanner-lid margins are left out of that measurement. Adjust the auto strength, pick a spot that should be gray, or fine-tune warmth, tint, brightness, contrast, and saturation, with a before/after split view. Drop photos or a whole folder (subfolders included), up to 100 photos at 80 MB and 40 megapixels each, review corrected thumbnails, then download one photo or a ZIP of the batch at full resolution. By default JPEG and WebP stay in their format at 95% quality, and PNG, BMP, GIF, and AVIF are saved as lossless PNG. Re-encoding drops metadata. TIFF is not supported by browsers, so convert TIFF scans to PNG or JPEG first. Processing stays in this tab.
 
 **Background remover**  
 Samples the corners of a photo and lifts a flat studio color. Best on product shots with a solid backdrop. Processing stays in this tab.
@@ -111,11 +166,35 @@ Parse camera, lens, exposure, timestamps, and GPS in this browser. Copy tags as 
 **EXIF stripper**  
 Re-encode the image so capture tags (including GPS) are dropped, then download a clean copy.
 
+**Image color picker**  
+Drop an image to sample an exact pixel or extract a palette. Pick by clicking the image or entering pixel coordinates. Copy the selected color or the full palette. Transparent pixels are excluded from the palette. Images are limited to 20 MB and 40 megapixels.
+
+**Favicon generator**  
+Create 16, 32, 48, 180, 192, and 512 pixel PNGs, a multi-size `favicon.ico`, `site.webmanifest`, and an HTML snippet in a downloadable ZIP. Choose padding and a transparent or solid background. The image is processed in the browser.
+
+---
+
+## Files
+
+**QR reader**  
+Drop or paste a raster image to decode a QR code locally. The decoded content is copyable; HTTP(S) links can be opened explicitly. Supports the browser's raster formats, with a 20 MB file limit. Images containing several QR codes return the first code detected.
+
+**PDF editor**
+Open `/pdf-editor` for a local PDF viewer and markup workspace. Drag thumbnails to reorder pages, insert PDFs or blank pages, rotate, duplicate, remove, and export an entire document or the current page. Add movable text boxes, freehand drawing, highlights, rectangles, ovals, lines, arrows, and a reusable handwritten signature. Select markup to adjust its color, stroke, and dimensions. Undo/redo covers page edits, annotations, and form changes.
+
+Standard AcroForm text fields, checkboxes, choices, and radio groups can be filled from the Forms inspector. Filled forms and new markup are flattened into visible page content on download. This creates a new PDF: original document-level bookmarks and digital signatures are not retained. Signatures added here are handwritten marks, not certificate signatures. XFA and password-protected PDFs are unsupported. Added text uses Helvetica with Latin/WinAnsi characters; existing PDF text is displayed but not edited. Documents and signatures stay in memory in the current browser tab; download before leaving. Limits: 30 MB per file, 75 MB loaded, 200 pages. PDF.js and its fonts, CMaps, image decoders, and worker are bundled locally, with no third-party viewer requests.
+
+**PDF merge & split**  
+Add one or more PDFs, reorder files or individual pages, rotate pages, and download the whole result or just selected pages. Export different selections to split a document. Processing stays in this browser, with limits of 30 MB per file, 75 MB total, and 200 pages. Encrypted PDFs are not supported. Export creates a new page-based document; document-level features such as bookmarks, interactive forms, and digital signatures are not preserved as a complete document.
+
 ---
 
 ## Network
 
 These tools run on the host. The browser asks this app; this app talks to the internet.
+
+**Domain health check**  
+One domain produces a combined report for site status, DNS, TLS, headers, mail authentication, and site files. Each check has its own summary and details, so partial failures remain visible. The report is a diagnostic snapshot, not a blanket security score.
 
 **Site status**  
 HEAD/GET a URL from this machine, then show up/down, status code, latency, and the final URL after redirects.
@@ -128,6 +207,8 @@ Query WHOIS servers from this host and show registrar, dates, name servers, and 
 
 **DNS lookup**  
 Resolve A, AAAA, MX, NS, CNAME, and TXT with the container’s (or machine’s) resolver. Each type is listed on its own line.
+
+The resolver comparison mode checks A and AAAA answers using the local resolver and selected public resolvers (Cloudflare, Google, and Quad9), including TTLs and lookup errors. Queries run from the server; they are not tests from multiple geographic locations. Different answers can be normal for geographic routing or split DNS. Public resolver access requires outbound DNS connectivity.
 
 **Headers & redirects**  
 Follow up to ten hops with `redirect: manual` and show status plus a header table for each hop.
@@ -152,13 +233,19 @@ Network, mask, broadcast, usable range, and whether an IP sits inside the prefix
 
 ---
 
-## Text
+## Text, developer tools & calculators
 
-**URL cleaner**  
-Strip `utm_*`, click IDs (`fbclid`, `gclid`, and related), and other tracking parameters. The rest of the URL is left alone.
+**URL cleaner & inspector**  
+Strip `utm_*`, click IDs (`fbclid`, `gclid`, and related), and other tracking parameters. Switch to the inspector to edit the scheme, credentials, hostname, port, path, fragment, and query parameters, including repeated parameter names. Rebuilding uses the browser URL encoder and may normalize URL spelling.
 
-**Text diff**  
-Line-by-line comparison of two drafts. Green arrived, coral left.
+**Text & JSON diff**  
+Line-by-line comparison of two drafts. Green arrived, coral left. JSON mode reports added, removed, and changed values by path, ignoring whitespace and object-key order while preserving array order. Invalid or oversized JSON is reported before comparison.
+
+**Docker run to Compose**  
+Paste a `docker run` command to create copyable Compose YAML. Supports common environment, port, volume, name, network, restart, user, working directory, entrypoint, and command options. Unsupported flags produce an error; CLI-only behavior is explained separately. Commands and substitutions are never executed, and environment values are never read from this machine.
+
+**Date calculator**  
+Count calendar days, Monday–Friday weekdays, and weekend days between two dates, or add/subtract calendar days or weekdays. The earlier date is included and the later date is excluded unless both-date inclusion is selected. Reversed ranges return negative counts. Holidays are not excluded. Calendar arithmetic avoids daylight-saving time shifts and supports years 0001–9999.
 
 **JSON formatter**  
 Pretty-print or minify, and surface syntax errors before anything ships.
@@ -226,9 +313,13 @@ What is X% of Y, what percent one number is of another, and the percent change b
 **Aspect ratio**  
 Simplify a width and height, then scale either side and keep the ratio.
 
+**Interest calculator**
+
+Open `/interest-calculator` under **Calculators** for compound savings, simple interest, and fixed-rate loan repayments. Choose a nominal annual rate or APY, daily through annual or continuous compounding, years/months/days, and a 365- or 360-day basis. Optional recurring deposits have their own frequency, beginning/end timing, and annual increase. Compare a second rate and estimate tax deducted at maturity plus inflation-adjusted purchasing power. Loan mode supports payment frequency and extra principal payments, with interest and time saved. Eight display currencies, live charts, monthly/yearly savings tables, a full repayment schedule, copyable summaries, examples, and CSV downloads run entirely in the browser. Currency selection does not perform exchange-rate conversion. The expandable calculation notes explain fractional-period growth, contribution boundaries, and rounding assumptions.
+
 **Billable hours**
 
-Enter start and end times (such as `1:30PM` and `3:10PM`, or 24-hour time), an hourly rate, and an optional unpaid break in minutes. Shows billable hours and total pay, with a copyable summary. Earlier end times count as the next day; matching times mean zero hours. Pay uses exact minutes and rounds only the final total to cents. Everything is calculated in your browser.
+Enter start and end times with separate AM/PM buttons (or choose 24-hour time), or switch to total hours and enter a decimal such as `7.5` for 7 hours 30 minutes. Total hours supports up to four decimal places and sessions longer than one day. Unambiguous 24-hour entries such as `13:30`, `00:30`, and `23:15` also work in the default 12-hour mode and convert when you leave the field. A single minute digit is accepted: `1:5` means `1:05`. Add an hourly rate and an optional unpaid break in minutes, which is subtracted in either mode. Shows billable hours and total pay, with a copyable summary. Earlier end times count as the next day; matching times mean zero hours. Pay uses exact entered time and rounds only the final total to cents. Rounded decimal hours are marked approximate; the summary includes them only when re-entering those hours at the same rate reproduces the total pay. Switching entry methods keeps your inputs. Everything is calculated in your browser.
 
 ---
 

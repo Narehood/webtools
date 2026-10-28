@@ -1,8 +1,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { connect as tlsConnect } from "node:tls";
 import { createConnection, isIP } from "node:net";
-import { lookup as dnsLookup, reverse as dnsReverse, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
+import { Resolver, lookup as dnsLookup, reverse as dnsReverse, resolve4, resolve6, resolveCname, resolveMx, resolveNs, resolveTxt } from "node:dns/promises";
 import whoiser from "whoiser";
+import { handlePhotoApi } from "./photoApi.ts";
+import { assertJsonPost, assertSameOrigin } from "./requestPolicy.ts";
+import {
+  compareDnsResolvers,
+  normalizeDnsHostname,
+  runDomainHealthChecks,
+  type HealthMailData,
+  type HealthTlsData,
+} from "./networkTools.ts";
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -65,11 +74,11 @@ function hostnameFrom(input: string): string {
   return trimmed.replace(/\/.*$/, "").replace(/^\.+|\.+$/g, "");
 }
 
-async function checkStatus(rawUrl: string) {
+async function checkStatus(rawUrl: string, timeoutMs = 8000) {
   const url = normalizeUrl(rawUrl);
   const started = performance.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response | undefined;
 
   try {
@@ -155,14 +164,14 @@ async function lookupDns(domain: string) {
   };
 }
 
-async function checkSsl(raw: string) {
+async function checkSsl(raw: string, timeoutMs = 8000): Promise<HealthTlsData & Record<string, unknown>> {
   const url = normalizeUrl(raw);
   const host = url.hostname;
   const port = url.port ? Number(url.port) : 443;
 
-  return await new Promise((resolve, reject) => {
+  return await new Promise<HealthTlsData & Record<string, unknown>>((resolve, reject) => {
     const socket = tlsConnect(
-      { host, port, servername: host, rejectUnauthorized: false, timeout: 8000 },
+      { host, port, servername: host, rejectUnauthorized: false, timeout: timeoutMs },
       () => {
         const cert = socket.getPeerCertificate();
         const authorized = socket.authorized;
@@ -201,8 +210,14 @@ async function checkSsl(raw: string) {
   });
 }
 
-async function traceHeaders(raw: string) {
+async function traceHeaders(
+  raw: string,
+  limits: { maxHops?: number; timeoutMs?: number; totalTimeoutMs?: number } = {},
+) {
   let current = normalizeUrl(raw).toString();
+  const maxHops = limits.maxHops ?? 10;
+  const timeoutMs = limits.timeoutMs ?? 8000;
+  const deadline = performance.now() + (limits.totalTimeoutMs ?? maxHops * timeoutMs);
   const chain: {
     url: string;
     status: number;
@@ -211,9 +226,11 @@ async function traceHeaders(raw: string) {
     headers: Record<string, string>;
   }[] = [];
 
-  for (let hop = 0; hop < 10; hop += 1) {
+  for (let hop = 0; hop < maxHops; hop += 1) {
+    const remaining = Math.ceil(deadline - performance.now());
+    if (remaining <= 0) throw new Error("Header trace timed out");
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), Math.min(timeoutMs, remaining));
     let response: Response | undefined;
     try {
       response = await fetch(current, {
@@ -233,6 +250,9 @@ async function traceHeaders(raw: string) {
       });
       if (!location || response.status < 300 || response.status >= 400) break;
       current = new URL(location, current).toString();
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("Header trace timed out");
+      throw error;
     } finally {
       await response?.body?.cancel().catch(() => {});
       controller.abort();
@@ -243,14 +263,38 @@ async function traceHeaders(raw: string) {
   return { chain };
 }
 
-async function lookupMail(domain: string) {
+type MailDnsClient = {
+  resolveMx: (hostname: string) => ReturnType<typeof resolveMx>;
+  resolveTxt: (hostname: string) => ReturnType<typeof resolveTxt>;
+};
+
+const defaultMailDns: MailDnsClient = {
+  resolveMx: (hostname) => resolveMx(hostname),
+  resolveTxt: (hostname) => resolveTxt(hostname),
+};
+
+function settledDnsFailure<T>(result: PromiseSettledResult<T>) {
+  if (result.status === "fulfilled") return undefined;
+  const code = result.reason && typeof result.reason === "object" && "code" in result.reason
+    ? String((result.reason as { code?: unknown }).code ?? "").toUpperCase()
+    : "";
+  if (code === "ENODATA" || code === "DNS_ENODATA" || code === "ENOTFOUND" || code === "DNS_ENOTFOUND") {
+    return undefined;
+  }
+  if (code === "ETIMEOUT" || code === "DNS_ETIMEOUT" || code === "ECANCELLED" || code === "DNS_ECANCELLED") {
+    return "Timed out";
+  }
+  return result.reason instanceof Error && result.reason.message ? result.reason.message : "DNS query failed";
+}
+
+async function lookupMailDetailed(domain: string, dns: MailDnsClient = defaultMailDns) {
   const host = hostnameFrom(domain);
   const selectors = ["default", "google", "selector1", "selector2", "k1", "s1", "s2", "mail"];
   const [mx, txt, dmarc, ...dkimSettled] = await Promise.allSettled([
-    resolveMx(host),
-    resolveTxt(host),
-    resolveTxt(`_dmarc.${host}`),
-    ...selectors.map((selector) => resolveTxt(`${selector}._domainkey.${host}`)),
+    dns.resolveMx(host),
+    dns.resolveTxt(host),
+    dns.resolveTxt(`_dmarc.${host}`),
+    ...selectors.map((selector) => dns.resolveTxt(`${selector}._domainkey.${host}`)),
   ]);
 
   const fulfilled = <T>(item: PromiseSettledResult<T>): T | [] =>
@@ -264,6 +308,12 @@ async function lookupMail(domain: string) {
     })
     .filter((item): item is { selector: string; records: string[] } => Boolean(item));
 
+  const lookupErrors = {
+    mx: settledDnsFailure(mx),
+    txt: settledDnsFailure(txt),
+    dmarc: settledDnsFailure(dmarc),
+  };
+
   return {
     domain: host,
     mx: fulfilled(mx),
@@ -271,7 +321,28 @@ async function lookupMail(domain: string) {
     txt: txtRecords,
     dmarc: fulfilled(dmarc).map((entry) => entry.join("")),
     dkim,
+    lookupErrors,
   };
+}
+
+async function lookupMail(domain: string) {
+  const { lookupErrors: _lookupErrors, ...result } = await lookupMailDetailed(domain);
+  return result;
+}
+
+async function lookupHealthMail(domain: string): Promise<HealthMailData> {
+  const timeoutMs = 2_250;
+  const resolver = new Resolver({ timeout: timeoutMs, tries: 1, maxTimeout: timeoutMs });
+  const timer = setTimeout(() => resolver.cancel(), timeoutMs + 250);
+  try {
+    return await lookupMailDetailed(domain, {
+      resolveMx: (hostname) => resolver.resolveMx(hostname),
+      resolveTxt: (hostname) => resolver.resolveTxt(hostname),
+    });
+  } finally {
+    clearTimeout(timer);
+    resolver.cancel();
+  }
 }
 
 function parsePortNumber(raw: unknown): number {
@@ -376,7 +447,7 @@ export function siteFileTarget(raw: string) {
       throw new Error("Enter a domain");
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Enter a domain");
-    hostname = url.hostname;
+    hostname = url.hostname.replace(/^\[|\]$/g, "");
     port = url.port;
   } else {
     const bare = trimmed.replace(/\/.*$/, "").replace(/^\.+|\.+$/g, "");
@@ -395,15 +466,23 @@ export function siteFileTarget(raw: string) {
 
   hostname = hostname.toLowerCase();
   if (!hostname || /[\s/@\\]/.test(hostname)) throw new Error("Enter a domain");
+  if (hostname.includes(":")) {
+    if (isIP(hostname) !== 6) throw new Error("Enter a valid IPv6 address");
+    hostname = new URL(`https://[${hostname}]`).hostname.slice(1, -1);
+  } else if (/[\[\]]/.test(hostname)) throw new Error("Enter a domain");
   const portNumber = port === "" ? 443 : Number(port);
   if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) throw new Error("Enter a domain");
   const literal = hostname.includes(":") ? `[${hostname}]` : hostname;
   return { host: hostname, origin: `https://${literal}:${portNumber}` };
 }
 
-function sameSiteHost(originHost: string, nextHost: string) {
-  const left = originHost.toLowerCase();
-  const right = nextHost.toLowerCase();
+export function sameSiteHost(originHost: string, nextHost: string) {
+  const normalize = (host: string) => {
+    const bare = host.toLowerCase().replace(/^\[|\]$/g, "");
+    return isIP(bare) === 6 ? new URL(`https://[${bare}]`).hostname : bare;
+  };
+  const left = normalize(originHost);
+  const right = normalize(nextHost);
   if (left === right) return true;
   const bare = (host: string) => host.startsWith("www.") ? host.slice(4) : host;
   return bare(left) === bare(right);
@@ -433,11 +512,19 @@ async function readLimitedText(response: Response, maxBytes: number) {
   return { text: new TextDecoder().decode(Buffer.concat(chunks)), truncated };
 }
 
-async function fetchSiteFile(host: string, origin: string, path: string) {
+async function fetchSiteFile(
+  host: string,
+  origin: string,
+  path: string,
+  limits: { maxHops: number; timeoutMs: number; totalTimeoutMs: number },
+) {
   let current = `${origin}${path}`;
-  for (let hop = 0; hop < 4; hop += 1) {
+  const deadline = performance.now() + limits.totalTimeoutMs;
+  for (let hop = 0; hop < limits.maxHops; hop += 1) {
+    const remaining = Math.ceil(deadline - performance.now());
+    if (remaining <= 0) throw new Error("Timed out");
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), Math.min(limits.timeoutMs, remaining));
     try {
       const response = await fetch(current, {
         redirect: "manual",
@@ -465,18 +552,30 @@ async function fetchSiteFile(host: string, origin: string, path: string) {
         truncated: html ? false : limited.truncated,
         note: html ? "The response was HTML, not the text file." : undefined,
       };
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("Timed out");
+      throw error;
     } finally {
+      controller.abort();
       clearTimeout(timeout);
     }
   }
   throw new Error("Too many redirects");
 }
 
-async function lookupSiteFiles(raw: string) {
+async function lookupSiteFiles(
+  raw: string,
+  options: { maxHops?: number; timeoutMs?: number; totalTimeoutMs?: number } = {},
+) {
   const target = siteFileTarget(raw);
+  const limits = {
+    maxHops: options.maxHops ?? 4,
+    timeoutMs: options.timeoutMs ?? 8000,
+    totalTimeoutMs: options.totalTimeoutMs ?? 32_000,
+  };
   const files = await Promise.all(SITE_FILES.map(async (file) => {
     try {
-      const result = await fetchSiteFile(target.host, target.origin, file.path);
+      const result = await fetchSiteFile(target.host, target.origin, file.path, limits);
       return { ...result, name: file.name };
     } catch (error) {
       return {
@@ -508,10 +607,49 @@ async function lookupPtr(raw: string) {
   }
 }
 
+async function lookupHealthDns(domain: string) {
+  const comparison = await compareDnsResolvers(domain, [], { timeoutMs: 2_250 });
+  const local = comparison.resolvers[0];
+  return {
+    a: local.a.records.map((record) => record.address),
+    aaaa: local.aaaa.records.map((record) => record.address),
+    addressErrors: {
+      a: local.a.status === "error" ? local.a.error : undefined,
+      aaaa: local.aaaa.status === "error" ? local.aaaa.error : undefined,
+    },
+  };
+}
+
+function normalizeHealthTarget(raw: string) {
+  const url = normalizeUrl(raw);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Enter an HTTP or HTTPS URL");
+  }
+  if (url.username || url.password) throw new Error("URLs with credentials are not supported");
+  const domain = normalizeDnsHostname(url.hostname);
+  url.hash = "";
+  return { domain, url: url.toString() };
+}
+
+async function checkDomainHealth(raw: string) {
+  const target = normalizeHealthTarget(raw);
+  return runDomainHealthChecks(target, {
+    status: () => checkStatus(target.url, 5_500),
+    dns: () => lookupHealthDns(target.domain),
+    tls: () => checkSsl(target.url, 5_500),
+    headers: () => traceHeaders(target.url, { maxHops: 4, timeoutMs: 2_500, totalTimeoutMs: 5_500 }),
+    mail: () => lookupHealthMail(target.domain),
+    siteFiles: () => lookupSiteFiles(target.url, { maxHops: 2, timeoutMs: 2_500, totalTimeoutMs: 5_500 }),
+  });
+}
+
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (await handlePhotoApi(req, res)) return true;
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return false;
+    assertSameOrigin(req);
+    assertJsonPost(req);
 
     if (req.method === "OPTIONS") {
       res.statusCode = 204;
@@ -540,6 +678,21 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === "/api/dns" && req.method === "POST") {
       const body = await readJson(req);
       send(res, 200, await lookupDns(String(body.domain ?? body.host ?? "")));
+      return true;
+    }
+
+    if (url.pathname === "/api/dns-compare" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await compareDnsResolvers(
+        String(body.domain ?? body.host ?? ""),
+        body.resolvers,
+      ));
+      return true;
+    }
+
+    if (url.pathname === "/api/domain-health" && req.method === "POST") {
+      const body = await readJson(req);
+      send(res, 200, await checkDomainHealth(String(body.url ?? body.domain ?? body.host ?? "")));
       return true;
     }
 

@@ -5,7 +5,7 @@ import { chmodFromOctal, chmodToOctal, chmodToSymbolic, emptyChmod, type ChmodBi
 import { parseCidr } from "../../lib/cidr";
 import { htpasswdLine } from "../../lib/htpasswd";
 import { inspectKeyMaterial } from "../../lib/pem";
-import { totpCode } from "../../lib/totp";
+import { totpCode, verifyTotp } from "../../lib/totp";
 import { wifiPayload } from "../../lib/wifi";
 
 export function CidrTool() {
@@ -279,6 +279,8 @@ export function TotpTool() {
   const [secret, setSecret] = useState("");
   const [code, setCode] = useState("------");
   const [remaining, setRemaining] = useState(30);
+  const [candidate, setCandidate] = useState("");
+  const [validation, setValidation] = useState("");
   const [user, setUser] = useState("admin");
   const [password, setPassword] = useState("");
   const [htpasswd, setHtpasswd] = useState("");
@@ -334,7 +336,7 @@ export function TotpTool() {
         <section className="panel">
           <label className="field">
             <span>TOTP secret (Base32)</span>
-            <input value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="off" />
+              <input value={secret} onChange={(event) => { setSecret(event.target.value); setValidation(""); }} autoComplete="off" />
           </label>
           <div className="stat-grid" style={{ marginTop: 16 }}>
             <div className="stat">
@@ -346,6 +348,9 @@ export function TotpTool() {
               <b>{secret.trim() ? remaining : "—"}</b>
             </div>
           </div>
+            <label className="field" style={{ marginTop: 16 }}><span>Code to validate (±30 seconds)</span><input inputMode="numeric" value={candidate} onChange={event => { setCandidate(event.target.value); setValidation(""); }} /></label>
+            <button className="btn ghost" style={{ marginTop: 12 }} onClick={() => { try { setValidation(verifyTotp(secret,candidate) ? "Code matches within the allowed time window." : "Code does not match the allowed time window."); } catch (err) { setValidation(err instanceof Error ? err.message : "Could not validate code."); } }}>Validate code</button>
+            {validation && <p className="lede" role="status">{validation}</p>}
         </section>
         <section className="panel">
           <label className="field">

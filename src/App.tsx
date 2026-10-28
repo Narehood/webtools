@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./layout/Shell";
 import { Home } from "./pages/Home";
 import { Settings } from "./pages/Settings";
+import { extraTools } from "./data/extraTools";
+const ExtraToolPage = lazy(() => import("./pages/tools/ExtraToolPage"));
 const BackgroundTool = lazy(() => import("./pages/tools/BackgroundTool").then((module) => ({ default: module.BackgroundTool })));
 const CompressTool = lazy(() => import("./pages/tools/ConvertTool").then((module) => ({ default: module.CompressTool })));
 const ConvertTool = lazy(() => import("./pages/tools/ConvertTool").then((module) => ({ default: module.ConvertTool })));
@@ -54,6 +56,17 @@ const MarkdownTool = lazy(() => import("./pages/tools/MoreTools").then((module) 
 const PassphraseTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.PassphraseTool })));
 const HmacTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.HmacTool })));
 const SiteFilesTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.SiteFilesTool })));
+const QrReaderTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.QrReaderTool })));
+const PdfTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.PdfTool })));
+const PdfEditorTool = lazy(() => import("./pages/tools/PdfEditorTool"));
+const ImagePaletteTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.ImagePaletteTool })));
+const FaviconTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.FaviconTool })));
+const DomainHealthTool = lazy(() => import("./pages/tools/DomainHealthTool").then((module) => ({ default: module.DomainHealthTool })));
+const DockerComposeTool = lazy(() => import("./pages/tools/DockerComposeTool").then((module) => ({ default: module.DockerComposeTool })));
+const DateCalculatorTool = lazy(() => import("./pages/tools/DateCalculatorTool").then((module) => ({ default: module.DateCalculatorTool })));
+const InterestCalculatorTool = lazy(() => import("./pages/tools/InterestCalculatorTool").then((module) => ({ default: module.InterestCalculatorTool })));
+const PhotoColorTool = lazy(() => import("./pages/tools/PhotoColorTool").then((module) => ({ default: module.PhotoColorTool })));
+const PhotoRepairTool = lazy(() => import("./pages/tools/PhotoRepairTool").then((module) => ({ default: module.PhotoRepairTool })));
 
 export default function App() {
   return (
@@ -61,6 +74,18 @@ export default function App() {
       <Routes>
         <Route element={<Shell />}>
           <Route path="/" element={<Home />} />
+          {extraTools.map(tool => <Route key={tool.slug} path={`/${tool.slug}`} element={<ExtraToolPage slug={tool.slug} />} />)}
+          <Route path="/qr-reader" element={<QrReaderTool />} />
+          <Route path="/pdf" element={<PdfTool />} />
+          <Route path="/pdf-editor" element={<PdfEditorTool />} />
+          <Route path="/image-palette" element={<ImagePaletteTool />} />
+          <Route path="/favicon" element={<FaviconTool />} />
+          <Route path="/domain-health" element={<DomainHealthTool />} />
+          <Route path="/docker-compose" element={<DockerComposeTool />} />
+          <Route path="/date-calculator" element={<DateCalculatorTool />} />
+          <Route path="/interest-calculator" element={<InterestCalculatorTool />} />
+          <Route path="/photo-color" element={<PhotoColorTool />} />
+          <Route path="/photo-repair" element={<PhotoRepairTool />} />
           <Route path="/background" element={<BackgroundTool />} />
           <Route path="/convert" element={<ConvertTool />} />
           <Route path="/compress" element={<CompressTool />} />

@@ -1,3 +1,5 @@
+import { escapeHtml } from "./utilityCore.ts";
+
 export type Inline =
   | { type: "text"; text: string }
   | { type: "strong"; text: string }
@@ -18,6 +20,25 @@ const inlinePattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)\s]
 
 export function safeHref(href: string) {
   return /^(https?:\/\/|mailto:)/i.test(href);
+}
+
+export function markdownToHtml(source: string) {
+  const inline = (parts: Inline[]) => parts.map(part => {
+    const value = escapeHtml(part.text);
+    if (part.type === "link") return `<a href="${escapeHtml(part.href)}" rel="noreferrer">${value}</a>`;
+    if (part.type === "strong") return `<strong>${value}</strong>`;
+    if (part.type === "em") return `<em>${value}</em>`;
+    if (part.type === "code") return `<code>${value}</code>`;
+    return value;
+  }).join("");
+  return parseMarkdown(source).map(block => {
+    if (block.type === "h") return `<h${block.level}>${inline(block.inlines)}</h${block.level}>`;
+    if (block.type === "ul" || block.type === "ol") return `<${block.type}>${block.items.map(item => `<li>${inline(item)}</li>`).join("")}</${block.type}>`;
+    if (block.type === "quote") return `<blockquote>${inline(block.inlines)}</blockquote>`;
+    if (block.type === "code") return `<pre><code>${escapeHtml(block.text)}</code></pre>`;
+    if (block.type === "hr") return "<hr>";
+    return `<p>${inline(block.inlines)}</p>`;
+  }).join("\n");
 }
 
 export function parseInline(input: string): Inline[] {

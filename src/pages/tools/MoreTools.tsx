@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { CopyButton } from "../../components/CopyButton";
+import { saveFile } from "../../components/Utility";
+import { hashAlgorithms } from "../../lib/hash";
+import { markdownToHtml } from "../../lib/markdown";
 import { formatHex, formatHsl, formatRgb, parseColor } from "../../lib/colorValue";
 import { hmacHex, type HmacAlgorithm } from "../../lib/hmac";
 import { parseMarkdown, type Inline } from "../../lib/markdown";
@@ -74,7 +77,19 @@ export function ZonesTool() {
 
 export function ColorConvertTool() {
   const [input, setInput] = useState("#1ea54c");
-  const color = useMemo(() => parseColor(input), [input]);
+  const color = useMemo(() => {
+    const parsed = parseColor(input);
+    if (parsed) return parsed;
+    const name = input.trim();
+    if (!/^[a-z]+$/i.test(name) || /^(transparent|currentcolor|inherit|initial|unset|revert)$/i.test(name)) return null;
+    const style = document.createElement("span").style;
+    style.color = name;
+    if (!style.color) return null;
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return null;
+    context.fillStyle = name;
+    return parseColor(context.fillStyle);
+  }, [input]);
   const picker = color ? formatHex(color) : "#1ea54c";
 
   return (
@@ -82,7 +97,7 @@ export function ColorConvertTool() {
       <header className="tool-head">
         <span className="badge local">On device</span>
         <h1>Color converter</h1>
-        <p className="lede">Hex, RGB, and HSL for the same color. Contrast checking stays on its own page.</p>
+          <p className="lede">Convert hex, RGB, HSL, or a CSS color name such as rebeccapurple.</p>
       </header>
       <div className="workspace report">
         <section className="panel stack">
@@ -104,7 +119,7 @@ export function ColorConvertTool() {
               <ValueRow label="HSL" value={formatHsl(color)} />
             </>
           ) : (
-            <p className="lede" role="alert">Use hex, rgb(), or hsl().</p>
+              <p className="lede" role="alert">Use hex, rgb(), hsl(), or an opaque CSS color name.</p>
           )}
         </section>
       </div>
@@ -136,6 +151,7 @@ hello
 export function MarkdownTool() {
   const [source, setSource] = useState(markdownSample);
   const blocks = useMemo(() => parseMarkdown(source), [source]);
+  const html = useMemo(() => markdownToHtml(source), [source]);
 
   return (
     <>
@@ -145,10 +161,13 @@ export function MarkdownTool() {
         <p className="lede">Headings, lists, emphasis, code, and http(s) or mailto links. HTML in the source is shown as text.</p>
       </header>
       <div className="workspace">
-        <label className="field panel">
-          <span>Markdown</span>
-          <textarea value={source} onChange={(event) => setSource(event.target.value)} spellCheck={false} />
-        </label>
+          <section className="panel stack">
+            <label className="field">
+              <span>Markdown</span>
+              <textarea value={source} onChange={(event) => setSource(event.target.value)} spellCheck={false} />
+            </label>
+            <div className="row"><CopyButton text={html} label="Copy HTML" /><button className="btn ghost" onClick={() => saveFile(`<!doctype html><html><head><meta charset="utf-8"><title>Markdown export</title></head><body>${html}</body></html>`, "markdown.html", "text/html;charset=utf-8")}>Download HTML</button></div>
+          </section>
         <section className="panel">
           <div className="markdown-preview">
             {blocks.map((block, index) => (
@@ -256,9 +275,7 @@ export function HmacTool() {
           <label className="field">
             <span>Algorithm</span>
             <select value={algorithm} onChange={(event) => setAlgorithm(event.target.value as HmacAlgorithm)}>
-              <option>SHA-256</option>
-              <option>SHA-384</option>
-              <option>SHA-512</option>
+              {hashAlgorithms.map(name => <option key={name}>{name}</option>)}
             </select>
           </label>
           <label className="field">
