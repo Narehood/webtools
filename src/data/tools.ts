@@ -36,6 +36,16 @@ export const tools: Tool[] = [
     tileInk: "#e2b57a",
   },
   {
+    slug: "pdf-editor",
+    name: "PDF editor",
+    blurb: "View, annotate, fill and sign PDFs. Arrange pages, add text, draw, and highlight locally.",
+    category: "files",
+    local: true,
+    featured: true,
+    tile: "rgba(224,137,114,.16)",
+    tileInk: "#e08972",
+  },
+  {
     slug: "pdf",
     name: "PDF merge & split",
     blurb: "Combine PDFs, extract pages, reorder, and rotate. Your documents stay here.",

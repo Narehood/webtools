@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { Link } from "react-router-dom";
 import { CopyButton } from "../../components/CopyButton";
 import { DropZone } from "../../components/DropZone";
 import { useObjectUrl } from "../../hooks/useObjectUrl";
@@ -242,6 +243,7 @@ export function PdfTool() {
         <span className="badge local">On device</span>
         <h1>PDF merge &amp; split</h1>
         <p className="lede">Merge PDFs, reorder and rotate pages, or select a subset to split into a new PDF. Files stay in this browser.</p>
+        <Link className="btn ghost" to="/pdf-editor">Open the PDF editor for viewing, markup &amp; signing →</Link>
       </header>
       <div className="workspace report">
         <section className="panel">

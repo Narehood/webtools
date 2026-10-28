@@ -58,6 +58,7 @@ const HmacTool = lazy(() => import("./pages/tools/MoreTools").then((module) => (
 const SiteFilesTool = lazy(() => import("./pages/tools/MoreTools").then((module) => ({ default: module.SiteFilesTool })));
 const QrReaderTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.QrReaderTool })));
 const PdfTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.PdfTool })));
+const PdfEditorTool = lazy(() => import("./pages/tools/PdfEditorTool"));
 const ImagePaletteTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.ImagePaletteTool })));
 const FaviconTool = lazy(() => import("./pages/tools/FileImageTools").then((module) => ({ default: module.FaviconTool })));
 const DomainHealthTool = lazy(() => import("./pages/tools/DomainHealthTool").then((module) => ({ default: module.DomainHealthTool })));
@@ -76,6 +77,7 @@ export default function App() {
           {extraTools.map(tool => <Route key={tool.slug} path={`/${tool.slug}`} element={<ExtraToolPage slug={tool.slug} />} />)}
           <Route path="/qr-reader" element={<QrReaderTool />} />
           <Route path="/pdf" element={<PdfTool />} />
+          <Route path="/pdf-editor" element={<PdfEditorTool />} />
           <Route path="/image-palette" element={<ImagePaletteTool />} />
           <Route path="/favicon" element={<FaviconTool />} />
           <Route path="/domain-health" element={<DomainHealthTool />} />

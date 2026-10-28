@@ -386,6 +386,8 @@ export function Icon({ name }: { name: string }) {
       );
     case "qr-reader":
       return <svg {...common}><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M3 12h18" /><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 15h3v3H7zM14 15h3v3h-3z" /></svg>;
+    case "pdf-editor":
+      return <svg {...common}><path d="M7 3h8l4 4v4M15 3v5h4M7 3v17h7M10 11h4M10 15h2M15 18l5-5 2 2-5 5-3 1z" /></svg>;
     case "pdf":
       return <svg {...common}><path d="M7 3h8l4 4v13H7zM15 3v5h4M4 7v15h11M10 12h6M10 16h4" /></svg>;
     case "domain-health":

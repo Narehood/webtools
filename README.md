@@ -8,7 +8,7 @@ Self-hosted everyday utilities, inspired by a dense toolbox layout. Image and te
 
 ## IT-Tools comparison and additions
 
-The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page across **47 new comparison pages**. Seven accompanying tools—QR reader, PDF merge/split, image color picker, favicon generator, domain health, Docker run to Compose, and date calculator—bring the complete catalog to **106 tools**. Bulk photo repair and the interest calculator add two more pages, for **108 tools**.
+The catalog was compared with [tools.lab.frydae.dev](https://tools.lab.frydae.dev/) on October 15, 2026 (the site's `v2024.10.22-7ca5933` release). All **86 reference utilities** map to a WebTools page in [`docs/frydae-comparison.json`](docs/frydae-comparison.json). Related conversions share a page across **47 new comparison pages**. Seven accompanying tools—QR reader, PDF merge/split, image color picker, favicon generator, domain health, Docker run to Compose, and date calculator—bring the complete catalog to **106 tools**. Bulk photo repair, the interest calculator, and the PDF editor add three more pages, for **109 tools**.
 
 | Area | New tools |
 | --- | --- |
@@ -178,6 +178,14 @@ Create 16, 32, 48, 180, 192, and 512 pixel PNGs, a multi-size `favicon.ico`, `si
 
 **QR reader**  
 Drop or paste a raster image to decode a QR code locally. The decoded content is copyable; HTTP(S) links can be opened explicitly. Supports the browser's raster formats, with a 20 MB file limit. Images containing several QR codes return the first code detected.
+
+**PDF editor**
+
+Open `/pdf-editor` for a local PDF viewer and markup workspace. Drag thumbnails to reorder pages, insert PDFs or blank pages, rotate, duplicate, remove, and export an entire document or the current page. Add movable, resizable text boxes, freehand drawing, highlights, rectangles, ovals, lines, arrows, and a reusable handwritten signature. Undo/redo covers page edits, annotations, and form changes.
+
+Standard AcroForm text fields, checkboxes, choices, and radio groups can be filled from the Forms inspector. Filled forms and new markup are flattened into visible page content on download. This creates a new PDF: original document-level bookmarks and digital signatures are not retained. Signatures added here are handwritten marks, not certificate signatures. XFA and password-protected PDFs are unsupported. Added text uses Helvetica with Latin/WinAnsi characters; existing PDF text is displayed but not edited. Documents and signatures stay in memory in the current browser tab; download before leaving. Limits: 30 MB per file, 75 MB loaded, 200 pages. PDF.js and its fonts, CMaps, image decoders, and worker are bundled locally.
+
+Unreadable rich-text fields are omitted from the inspector. Flattened copies blank password widgets; untouched fields with unsupported text retain their existing appearance, or remain blank if none exists. PDF previews skip embedded images above 40 megapixels; downloads retain the original page content.
 
 **PDF merge & split**  
 Add one or more PDFs, reorder files or individual pages, rotate pages, and download the whole result or just selected pages. Export different selections to split a document. Processing stays in this browser, with limits of 30 MB per file, 75 MB total, and 200 pages. Encrypted PDFs are not supported. Export creates a new page-based document; document-level features such as bookmarks, interactive forms, and digital signatures are not preserved as a complete document.
