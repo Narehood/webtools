@@ -9,11 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { X509CertificateGenerator } from '@peculiar/x509';
 import { assertPatchedNode, assertSafeCertificates } from '../scripts/check-runtime-security.mjs';
 
-test('runtime security check rejects unsupported releases and versions before the Brotli fix', () => {
-  for (const version of ['20.20.0', '22.23.4', '24.0.0', '24.21.0', '24.22.0', '24.22.1-rc.1', '26.12.1', 'invalid']) {
-    assert.throws(() => assertPatchedNode(version), /Install Node 24\.22\.1/);
+test('runtime security check rejects unsupported releases and versions before the November security fixes', () => {
+  for (const version of ['20.20.0', '22.23.4', '24.0.0', '24.21.0', '24.22.0', '24.22.1', '24.22.2', '24.22.3-rc.1', '26.12.1', 'invalid']) {
+    assert.throws(() => assertPatchedNode(version), /Install Node 24\.22\.3/);
   }
-  for (const version of ['24.22.1', 'v24.22.1', '24.22.2', '24.23.0']) {
+  for (const version of ['24.22.3', 'v24.22.3', '24.22.4', '24.23.0']) {
     assert.doesNotThrow(() => assertPatchedNode(version));
   }
 });

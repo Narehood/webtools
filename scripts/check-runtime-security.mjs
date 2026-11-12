@@ -2,13 +2,14 @@ import { X509Certificate } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { getCACertificates } from 'node:tls';
 
-// Node 24.22.1 fixes CVE-2026-111497 and updates its roots to NSS 3.131.1.
-// https://nodejs.org/en/blog/release/v24.22.1
+// Node 24.22.3 includes the November HTTP/2 and TLS security fixes as well as
+// October's Brotli fix and NSS 3.131.1 trust-store update.
+// https://nodejs.org/en/blog/release/v24.22.3
 export function assertPatchedNode(version) {
   const match = /^(?:v)?(\d+)\.(\d+)\.(\d+)$/.exec(version);
   const [, major, minor, patch] = match?.map(Number) ?? [];
-  if (major !== 24 || minor < 22 || (minor === 22 && patch < 1)) {
-    throw new Error(`Node ${version} is unsupported. Install Node 24.22.1 or newer in the Node 24 LTS line.`);
+  if (major !== 24 || minor < 22 || (minor === 22 && patch < 3)) {
+    throw new Error(`Node ${version} is unsupported. Install Node 24.22.3 or newer in the Node 24 LTS line.`);
   }
 }
 

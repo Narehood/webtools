@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
-# Homelab image: Node 24.22.1 LTS on Alpine. Frontend is compiled away;
+# Homelab image: Node 24.22.3 LTS on Alpine. Frontend is compiled away;
 # the running container includes native image codecs for disk-backed photo jobs.
 
-FROM node:24.22.1-alpine AS base
+FROM node:24.22.3-alpine AS base
 # Refresh OS security fixes as well as Node's separately bundled trust store.
 # 20261020-r0 removes the roots affected by the eMudhra CA compromise.
 RUN apk upgrade --no-cache \
